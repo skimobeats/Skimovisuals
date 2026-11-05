@@ -1,0 +1,60 @@
+# Skimovisuals
+
+A Windows app that turns your tracks into audio reactive music videos. Load a WAV, build up layers of visuals, images and effects on a timeline that react to your kicks, snares, hats and bass, then export an MP4 for socials.
+
+## Installing on Windows
+
+1. Go to the **Releases** page of this repository (right hand side of the repo's main page on GitHub).
+2. Open the newest **Skimovisuals build** and download the `Skimovisuals Setup x.x.x.exe` file.
+3. Run it. Because the app is not signed with a paid certificate, Windows may show a blue "Windows protected your PC" box. Click **More info** and then **Run anyway**.
+4. Choose where to install it and finish. A desktop shortcut is created.
+
+A new installer is built automatically every time the code changes. If you ever cannot find a release, open the **Actions** tab, click the latest successful "Build Windows app" run and download **Skimovisuals-Setup** from the bottom of the page.
+
+## Using it
+
+1. **New project**: pick a shape (9:16 for TikTok, Reels and Shorts, 16:9 for YouTube and so on), a resolution from 720p to 4K and a frame rate.
+2. **Audio tab**: load your master WAV, or switch to **Stems** and load each stem, telling it which is drums, bass, melody and so on. Type in your BPM. Kicks, snares and hats are detected for you and shown as lanes on the timeline. Click a lane to add a hit, drag to move it and right click to remove it. Use the sensitivity sliders if it picks up too much or too little.
+3. **Sections**: press **M** to drop a marker (intro, build, drop and so on), or press **Suggest sections**.
+4. **✨ Generate for me**: pick a style, colours and energy and it builds a full set of layers that follow your track. Press **🎲 Try another** for a different take. Everything it makes can be edited.
+5. **Build it yourself**: drag visuals, effects, images and text onto the timeline. Effects change everything on the tracks below them.
+6. **Make things react**: click a layer, then the 🔗 button beside any setting and pick Kick, Snare, Bass, Beat and more. Amount sets how strongly it reacts and Release sets how quickly it settles.
+7. **Animate**: the ◇ button beside a setting adds a keyframe at the playhead, so values can change over the song.
+8. **Colour tab**: choose a palette (pastels first, but plenty more), make your own, add colour changes at points in the song or let it cycle palettes on the beat. Any layer can follow the song's colours or use its own.
+9. **🎛 Perform**: hold keys Q to H for live effects like strobe, kaleidoscope and glitch. Turn on **Record**, press play, and your pad hits and slider moves are saved to the timeline to edit afterwards.
+10. **Presets tab**: save a single layer or a whole look and reuse it on your next release.
+11. **Export video**: MP4 (H.264 with AAC audio). Your NVIDIA card's encoder is used automatically when available. Try **15 sec test** first to check how it looks.
+
+Projects save as `.skimo` files. The app also autosaves every minute; use **Recover last autosave** on the start screen if anything goes wrong.
+
+### Shortcuts
+
+| Key | Action |
+| --- | --- |
+| Space | Play or pause |
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+S | Save |
+| Ctrl+B | Split at playhead |
+| Ctrl+D | Duplicate |
+| Ctrl+C / Ctrl+V | Copy and paste layers |
+| Delete | Remove selection |
+| M | Add section marker |
+| ← → | Move one beat (hold Shift for a bar) |
+| Ctrl+scroll | Zoom the timeline |
+| Alt while dragging | Turn snapping off temporarily |
+
+## For developers
+
+Built with Electron, React, WebGL2 shaders and FFmpeg.
+
+```bash
+npm install
+npm run dev        # run with live reload
+npm run typecheck
+npm run dist       # build the Windows installer into release/
+```
+
+* `src/engine/layers` holds every visual and effect as a GLSL shader with its settings.
+* `src/audio` does the analysis (envelopes, spectrum and onset detection) in a web worker.
+* `src/generate.ts` is the "Generate for me" logic.
+* `electron/main.ts` streams rendered frames into FFmpeg for export.
