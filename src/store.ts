@@ -32,7 +32,7 @@ export function newProject(opts: { name: string; aspect: string; resolution: str
   return {
     version: 1,
     name: opts.name,
-    settings: { aspect: opts.aspect, resolution: opts.resolution, fps: opts.fps, ...size, background: '#000000' },
+    settings: { aspect: opts.aspect, resolution: opts.resolution, fps: opts.fps, ...size, background: '#0b0b0d' },
     audioMode: 'master',
     audio: [],
     bpm: 120,
@@ -44,9 +44,10 @@ export function newProject(opts: { name: string; aspect: string; resolution: str
     detection: {},
     markers: [],
     palettes: [],
-    basePaletteId: 'pastel-dream',
+    basePaletteId: 'skimo-ember',
     paletteKeys: [],
     paletteCycle: { enabled: false, paletteIds: [], every: '4bars', fade: 1 },
+    colourReact: { hueSource: '', hueAmount: 0.08, swapOn: '', brightSource: '', brightAmount: 0.3 },
     media: [],
     tracks: [
       { id: uid(), name: 'Track 1', hidden: false, locked: false },
@@ -59,22 +60,31 @@ export function newProject(opts: { name: string; aspect: string; resolution: str
   };
 }
 
+/** Fill in anything added since the project was saved */
+export function migrateProject(p: Project): Project {
+  p.colourReact ||= { hueSource: '', hueAmount: 0.08, swapOn: '', brightSource: '', brightAmount: 0.3 };
+  p.paletteCycle ||= { enabled: false, paletteIds: [], every: '4bars', fade: 1 };
+  p.pads ||= []; p.markers ||= []; p.paletteKeys ||= []; p.palettes ||= []; p.hitsEdited ||= {}; p.detection ||= {};
+  return p;
+}
+
 export function makeClip(type: string, trackId: string, start: number, end: number, extra: Partial<Clip> = {}): Clip {
   const def = getDef(type);
   const params: Clip['params'] = {};
   for (const p of def.params) params[p.key] = p.def;
   return {
     id: uid(), trackId, type, name: def.name, start, end, params,
-    mods: JSON.parse(JSON.stringify(def.defaultMods || {})), keys: {},
+    // generated visuals and effects react harder by default so nothing feels static
+    mods: Object.fromEntries(Object.entries(structuredClone(def.defaultMods || {})).map(([k, m]) => [k, (def.category === 'generator' || def.category === 'effect') ? { ...m, amount: Math.max(-1, Math.min(1, m.amount * 1.4)) } : m])), keys: {},
     blend: def.category === 'effect' ? 'normal' : def.category === 'generator' ? 'screen' : 'normal',
     opacity: 1, fadeIn: 0, fadeOut: 0, paletteId: null,
     ...extra
   };
 }
 
-export type Selection = { kind: 'clip'; ids: string[] } | { kind: 'marker'; id: string } | { kind: 'pad'; id: string } | { kind: 'paletteKey'; id: string } | null;
+export type Selection = { kind: 'clip'; ids: string[] } | { kind: 'transition'; id: string } | { kind: 'marker'; id: string } | { kind: 'pad'; id: string } | { kind: 'paletteKey'; id: string } | null;
 
-export type Panel = 'media' | 'generators' | 'effects' | 'text' | 'colour' | 'audio' | 'presets';
+export type Panel = 'skimo' | 'media' | 'generators' | 'effects' | 'transitions' | 'text' | 'colour' | 'audio' | 'presets';
 
 interface State {
   project: Project | null;

@@ -1,4 +1,4 @@
-import { useStore, makeClip, findFreeTrack, snapTime } from '../store';
+import { useStore, makeClip, findFreeTrack, snapTime, addTrack } from '../store';
 import { playback } from '../playback';
 import type { Clip, MediaItem, Project } from '../types';
 import { platform, baseName } from '../platform';
@@ -23,7 +23,13 @@ export function addLayer(type: string, extra: Partial<Clip> = {}, at?: number, t
   if (end - start < 0.1) start = Math.max(0, end - defaultLength(p));
   let id = '';
   st.update((proj) => {
-    const tid = trackId ?? findFreeTrack(proj, start, end);
+    let tid = trackId ?? findFreeTrack(proj, start, end);
+    if (!trackId && type === 'logo') {
+      // the logo always goes on top so everything shows through it
+      const top = proj.tracks[proj.tracks.length - 1];
+      const busy = proj.clips.some((c) => c.trackId === top.id && c.start < end && c.end > start);
+      tid = busy ? addTrack(proj, 'Logo').id : top.id;
+    }
     const c = makeClip(type, tid, start, Math.max(start + 0.5, end), extra);
     proj.clips.push(c);
     id = c.id;
@@ -81,4 +87,4 @@ export function redetectLanes(force = false, only?: string) {
   }, true);
 }
 
-export const CATEGORY_COLOUR: Record<string, string> = { generator: 'var(--gen)', media: 'var(--media)', text: 'var(--text-c)', effect: 'var(--fx)' };
+export const CATEGORY_COLOUR: Record<string, string> = { generator: 'var(--gen)', media: 'var(--media)', text: 'var(--text-c)', effect: 'var(--fx)', logo: '#1fb5c8' };

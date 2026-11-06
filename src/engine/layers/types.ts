@@ -12,7 +12,7 @@ export interface ParamDef {
   group?: string;
 }
 
-export type LayerCategory = 'generator' | 'media' | 'text' | 'effect';
+export type LayerCategory = 'generator' | 'media' | 'text' | 'effect' | 'logo';
 
 export interface LayerDef {
   id: string;

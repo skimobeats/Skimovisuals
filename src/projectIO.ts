@@ -1,6 +1,6 @@
 import type { Clip, Palette, Project, Track, PaletteKey } from './types';
 import { platform, joinPath } from './platform';
-import { useStore, uid } from './store';
+import { useStore, uid, migrateProject } from './store';
 import { clearAudio, loadProjectAudio, audioDuration, laneDefs, detectLane } from './audio/audio';
 
 export const PROJECT_FILTERS = [{ name: 'Skimovisuals project', extensions: ['skimo'] }];
@@ -27,7 +27,7 @@ export async function openProjectFile(path?: string) {
   }
   const text = await platform.readText(path);
   if (!text) { useStore.getState().showToast('Could not open that file'); return; }
-  const project = JSON.parse(text) as Project;
+  const project = migrateProject(JSON.parse(text) as Project);
   // warn about any files that have moved
   const missing: string[] = [];
   for (const a of project.audio) if (!(await platform.exists(a.path))) missing.push(a.name);

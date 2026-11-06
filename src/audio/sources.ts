@@ -23,7 +23,9 @@ export function listSources(project: Project): SourceInfo[] {
     { id: 'beatramp', label: 'Beat ramp', group: 'Tempo', kind: 'beat' },
     { id: 'barramp', label: 'Bar ramp', group: 'Tempo', kind: 'beat' },
     { id: 'beatwave', label: 'Beat wave (smooth)', group: 'Tempo', kind: 'beat' },
-    { id: 'barwave', label: 'Bar wave (smooth)', group: 'Tempo', kind: 'beat' }
+    { id: 'barwave', label: 'Bar wave (smooth)', group: 'Tempo', kind: 'beat' },
+    { id: 'section', label: 'New section (pulse)', group: 'Sections', kind: 'hits' },
+    { id: 'sectionramp', label: 'Builds across each section', group: 'Sections', kind: 'env' }
   );
   return out;
 }
@@ -84,12 +86,41 @@ export function sampleSource(project: Project, id: string, t: number, decay = 0.
       return 0.5 - 0.5 * Math.cos(barPos * Math.PI * 2);
     }
   }
+  if (id === 'section' || id === 'sectionramp') {
+    const ms = project.markers;
+    let prev = 0, next = project.duration;
+    for (const m of ms) { if (m.t <= t && m.t > prev) prev = m.t; if (m.t > t && m.t < next) next = m.t; }
+    if (id === 'sectionramp') return Math.max(0, Math.min(1, (t - prev) / Math.max(0.1, next - prev)));
+    if (!ms.some((m) => m.t <= t)) return 0;
+    return Math.exp(-(t - prev) / Math.max(0.05, decay));
+  }
   if (id.startsWith('stemlevel:')) {
     const a = analyses.get(id.slice(10));
     return a ? envAt(a.level, a.rate, t) : 0;
   }
   // hit lanes
   return hitValue(project.hits[id], t, decay);
+}
+
+/** How many times an event has happened up to time t, and seconds since the last one */
+export function eventCount(project: Project, on: string, t: number, from = 0): { count: number; since: number } {
+  if (!on) return { count: 0, since: 99 };
+  if (on === 'beat' || on === 'bar') {
+    const { beatLen, beatPos } = beatInfo(project, t);
+    const per = on === 'bar' ? project.beatsPerBar : 1;
+    const pos = beatPos / per;
+    const startPos = beatInfo(project, from).beatPos / per;
+    const count = Math.max(0, Math.floor(pos) - Math.floor(startPos));
+    return { count, since: (pos - Math.floor(pos)) * per * beatLen };
+  }
+  if (on === 'section') {
+    const ms = project.markers.filter((m) => m.t > from && m.t <= t).sort((a, b) => a.t - b.t);
+    return { count: ms.length, since: ms.length ? t - ms[ms.length - 1].t : 99 };
+  }
+  const hits = project.hits[on] || [];
+  const i = lastHitIndex(hits, t);
+  const i0 = lastHitIndex(hits, from);
+  return { count: Math.max(0, i - i0), since: i >= 0 ? t - hits[i].t : 99 };
 }
 
 /** Spectrum (SPEC_BANDS values) at time t from the main mix */

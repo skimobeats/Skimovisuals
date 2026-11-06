@@ -4,27 +4,38 @@ import { LayerDef, f, sel, col, bool, mod } from './types';
 export const EFFECTS: LayerDef[] = [
   {
     id: 'kaleido', name: 'Kaleidoscope', category: 'effect', tags: ['psychedelic', 'hypnotic'],
-    description: 'Mirrors everything below into a spinning kaleidoscope.',
+    description: 'Mirrors everything below into a kaleidoscope that pulses, twists and snaps round with the music.',
     params: [
-      f('segments', 'Segments', 2, 24, 6, { step: 1 }),
-      f('spin', 'Spin', -2, 2, 0.1),
+      f('segments', 'Segments', 2, 24, 6),
+      f('spin', 'Spin', -2, 2, 0.15, { group: 'Motion' }),
+      sel('step', 'Snap round one segment on', ['Off', 'Each kick', 'Each snare', 'Each beat', 'Each bar', 'Each section'], 1, { group: 'Motion' }),
+      f('twist', 'Twist', -1, 1, 0, { group: 'Motion' }),
       f('rotate', 'Rotation', 0, 1, 0),
       f('zoom', 'Zoom', 0.2, 4, 1),
+      f('swirl', 'Swirl', -1, 1, 0),
       f('offsetX', 'Centre X', -0.5, 0.5, 0),
       f('offsetY', 'Centre Y', -0.5, 0.5, 0)
     ],
+    defaultMods: { zoom: mod('kick', 0.12, 0.2), twist: mod('snare', 0.35, 0.25), swirl: mod('bass', 0.25, 0.3) },
     glsl: `
+vec3 kal(vec2 p, float n){
+  float s = TAU / n;
+  float a = atan(p.y, p.x) + u_spin * 0.5 + p_rotate * TAU + u_step * s + p_twist * 0.6;
+  float r = length(p) / p_zoom;
+  a += p_swirl * r * 3.0;
+  a = mod(a, s); a = abs(a - s * 0.5);
+  vec2 uv = uncenter(vec2(cos(a), sin(a)) * r);
+  uv = abs(mod(uv - 1.0, 2.0) - 1.0);
+  return texture(u_input, uv).rgb;
+}
 vec4 layer(){
   vec2 p = centered(v_uv) - vec2(p_offsetX, p_offsetY);
-  float n = floor(p_segments);
-  float a = atan(p.y, p.x) + u_time * p_spin * 0.5 + p_rotate * TAU;
-  float r = length(p) / p_zoom;
-  float s = TAU / n;
-  a = mod(a, s); a = abs(a - s * 0.5);
-  vec2 q = vec2(cos(a), sin(a)) * r;
-  vec2 uv = uncenter(q);
-  uv = abs(mod(uv - 1.0, 2.0) - 1.0);
-  return vec4(texture(u_input, uv).rgb, 1.0);
+  float n = max(2.0, p_segments);
+  float lo = floor(n);
+  float f = n - lo;
+  vec3 c = kal(p, lo);
+  if (f > 0.001) c = mix(c, kal(p, lo + 1.0), smoothstep(0.0, 1.0, f));
+  return vec4(c, 1.0);
 }`
   },
   {

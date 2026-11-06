@@ -77,7 +77,7 @@ vec4 layer(){
     glsl: `
 vec4 layer(){
   vec2 p = centered(v_uv) * (1.0 - p_pulse * 0.25);
-  p = rot(u_time * p_spin * 0.5) * p;
+  p = rot(u_spin * 0.5) * p;
   int s = int(p_shape + 0.5);
   float r = length(p);
   if (s == 1) r = max(abs(p.x), abs(p.y));
@@ -150,7 +150,7 @@ vec4 layer(){
     glsl: `
 vec4 layer(){
   vec2 p = centered(v_uv);
-  p = rot(u_time * p_spin * 0.3) * p;
+  p = rot(u_spin * 0.3) * p;
   if (p_symmetry >= 2.0){ float n = floor(p_symmetry); float a = atan(p.y, p.x); float r = length(p); float s = TAU / n; a = abs(mod(a + s * 0.5, s) - s * 0.5); p = vec2(cos(a), sin(a)) * r; }
   p /= p_zoom;
   vec2 c = vec2(-0.52, -0.6) + vec2(p_morph * 0.35, p_morph * 0.25) + vec2(sin(u_time * 0.13), cos(u_time * 0.11)) * 0.08 * p_drift;
@@ -254,7 +254,7 @@ vec4 layer(){
   vec2 p = centered(v_uv) * (1.0 - p_pulse * 0.2);
   float r0 = length(p);
   float ringIdx = floor(r0 * p_rings * 1.4 - u_time * 0.5);
-  p = rot(u_time * p_spin * 0.4 + ringIdx * p_twist) * p;
+  p = rot(u_spin * 0.4 + ringIdx * p_twist) * p;
   float d = sdPoly(p, floor(p_sides));
   float x = d * p_rings * 1.4 - u_time * 0.5;
   float id = floor(x);
@@ -323,32 +323,39 @@ vec4 layer(){
 }`
   },
   {
-    id: 'gradient', name: 'Gradient Wash', category: 'generator', tags: ['dreamy', 'lofi', 'soft'],
-    description: 'Soft drifting blobs of colour. A gentle background, perfect for lofi.',
+    id: 'gradient', name: 'Colour Aura', category: 'generator', tags: ['dreamy', 'lofi', 'soft', 'background'],
+    description: 'Glowing pools of colour drifting through darkness, with film grain. A rich, moody background.',
     params: [
-      f('softness', 'Softness', 0.1, 1, 0.6),
-      f('size', 'Blob size', 0.2, 2, 0.8),
+      f('size', 'Glow size', 0.1, 1.5, 0.45),
+      f('depth', 'Darkness', 0, 1, 0.65),
+      f('count', 'Glows', 1, 6, 4, { step: 1 }),
       SPEED,
       f('breathe', 'Breathe', 0, 1, 0, { group: 'Motion' }),
-      f('grain', 'Grain', 0, 0.5, 0.06),
+      f('flare', 'Flare', 0, 1, 0, { group: 'Motion' }),
+      f('grain', 'Grain', 0, 0.5, 0.08),
       COLOURSPREAD, BRIGHT, HUE
     ],
-    defaultMods: { breathe: mod('bass', 0.3, 0.3) },
+    defaultMods: { breathe: mod('bass', 0.5, 0.3), flare: mod('kick', 0.35, 0.25) },
     glsl: `
 vec4 layer(){
   vec2 p = centered(v_uv);
-  vec3 acc = vec3(0.0); float wsum = 0.0;
-  for (int i = 0; i < 5; i++){
+  vec3 col = u_pal[3] * (1.0 - p_depth) * 0.6;
+  int n = int(p_count);
+  for (int i = 0; i < 6; i++){
+    if (i >= n) break;
     float fi = float(i);
-    vec2 c = vec2(sin(u_time * 0.11 * (1.0 + fi * 0.3) + fi * 2.1) * 0.6, cos(u_time * 0.09 * (1.0 + fi * 0.2) + fi * 1.3) * 0.4);
-    float r = (0.3 + 0.2 * hash11(fi + 1.0)) * p_size * (1.0 + p_breathe * 0.4);
-    float w = exp(-dot(p - c, p - c) / (r * r * p_softness * 2.0));
-    acc += pal(fi * 0.25 * p_spread * 2.0) * w; wsum += w;
+    vec2 c = vec2(sin(u_time * 0.13 * (1.0 + fi * 0.37) + fi * 2.1) * 0.55 * aspect(), cos(u_time * 0.1 * (1.0 + fi * 0.23) + fi * 1.3) * 0.4);
+    float r = (0.6 + 0.5 * hash11(fi + 1.0)) * p_size * (1.0 + p_breathe * 0.35);
+    float d = length(p - c) / r;
+    float glow = exp(-d * d * 2.2);
+    vec3 tint = u_pal[int(mod(fi, 3.0))];
+    tint = mix(tint, pal(fi * 0.33 * p_spread + 0.1), 0.35);
+    col += tint * glow * (0.85 + p_flare * 0.8) * (1.0 - p_depth * 0.35);
   }
-  vec3 col = acc / max(wsum, 0.0001);
-  col = mix(u_pal[3] * 0.4, col, smoothstep(0.0, 0.3, wsum));
-  col += (hash21(v_uv * u_res + u_t) - 0.5) * p_grain;
-  col = hueShift(col, p_hue) * p_brightness;
+  float vig = smoothstep(1.3, 0.2, length(p));
+  col *= mix(1.0, vig, p_depth);
+  col += (hash21(v_uv * u_res + fract(u_t * 7.0) * 91.0) - 0.5) * p_grain;
+  col = hueShift(max(col, 0.0), p_hue) * p_brightness;
   return vec4(col, 1.0);
 }`
   },

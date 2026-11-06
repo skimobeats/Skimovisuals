@@ -8,13 +8,19 @@ import { AudioPanel } from './AudioPanel';
 import { ColourPanel } from './ColourPanel';
 import { PresetsPanel } from './PresetsPanel';
 import { TEXT_FONTS } from '../engine/layers/media';
+import { TRANSITIONS } from '../engine/transitions';
+import { selectedClips } from '../store';
+import logoUrl from '../assets/skimo-logo.png';
+import type { Clip } from '../types';
+import { mod } from '../engine/layers/types';
 
 const TABS: { id: Panel; label: string; ico: string }[] = [
   { id: 'audio', label: 'Audio', ico: '♫' },
+  { id: 'skimo', label: 'Skimo', ico: '◢' },
   { id: 'media', label: 'Media', ico: '🖼' },
   { id: 'generators', label: 'Visuals', ico: '✺' },
   { id: 'effects', label: 'Effects', ico: '✧' },
-  { id: 'text', label: 'Text', ico: 'T' },
+  { id: 'transitions', label: 'Transitions', ico: '⧓' },
   { id: 'colour', label: 'Colour', ico: '🎨' },
   { id: 'presets', label: 'Presets', ico: '★' }
 ];
@@ -40,7 +46,8 @@ export function LeftPanel() {
         {panel === 'media' && <MediaPanel />}
         {panel === 'generators' && <LayerLibrary category="generator" title="Visuals" hint="Generated visuals. Drag one onto the timeline or press + to add it at the playhead." />}
         {panel === 'effects' && <LayerLibrary category="effect" title="Effects" hint="Effects change everything on the tracks below them. Put them above your visuals." />}
-        {panel === 'text' && <TextPanel />}
+        {(panel === 'skimo' || panel === 'text') && <SkimoPanel />}
+        {panel === 'transitions' && <TransitionsPanel />}
         {panel === 'colour' && <ColourPanel />}
         {panel === 'presets' && <PresetsPanel />}
       </div>
@@ -122,22 +129,113 @@ function MediaPanel() {
   );
 }
 
-function TextPanel() {
+// Ready made logo looks: settings plus which parts of the music drive them
+const LOGO_LOOKS: { name: string; desc: string; params: Record<string, number>; mods: Clip['mods'] }[] = [
+  { name: 'Reactive', desc: 'Each letter reacts to its own part of the track and the shape glitches on hits.', params: {}, mods: {} },
+  { name: 'Clean', desc: 'Calm and confident. Letters flash on the kick only, the shape just breathes.', params: { shadow: 0.35 },
+    mods: { s: mod('kick', 0.7, 0.2), k: mod('kick', 0.7, 0.2), i: mod('kick', 0.7, 0.2), m: mod('kick', 0.7, 0.2), o: mod('kick', 0.7, 0.2), breathe: mod('bass', 0.4, 0.3) } },
+  { name: 'Print', desc: 'Screen print feel: inks slip out of line on the snare, heavy paper texture.', params: { texture: 0.8, letterFx: 3 },
+    mods: { slip: mod('snare', 0.8, 0.25), s: mod('kick', 0.8, 0.2), k: mod('snare', 0.8, 0.2), i: mod('hats', 0.6, 0.1), m: mod('bass', 0.6, 0.3), o: mod('mids', 0.6, 0.3), skew: mod('kick', 0.1, 0.2) } },
+  { name: 'Chaos', desc: 'For drops. Heavy glitching, jolts, stretch and shatter flashes.', params: { letterFx: 5 },
+    mods: { glitch: mod('snare', 0.8, 0.15), jolt: mod('hats', 0.6, 0.1), stretch: mod('kick', 0.35, 0.2), skew: mod('kick', 0.3, 0.15), shatter: mod('snare', 0.25, 0.12), slip: mod('kick', 0.5, 0.2), s: mod('kick', 1, 0.2), k: mod('snare', 1, 0.2), i: mod('hats', 1, 0.1), m: mod('bass', 1, 0.3), o: mod('mids', 1, 0.3), pulse: mod('kick', 0.4, 0.2) } },
+  { name: 'Melt', desc: 'Slow and woozy for breakdowns. The shape drips and wobbles with the bass.', params: { melt: 0.25, morphShape: 3 },
+    mods: { morph: mod('bass', 0.5, 0.4), breathe: mod('bass', 0.8, 0.4), melt: mod('mids', 0.3, 0.4), m: mod('bass', 0.8, 0.3), o: mod('mids', 0.8, 0.3) } }
+];
+
+function SkimoPanel() {
+  const project = useStore((s) => s.project)!;
   const [text, setText] = useState('SKIMO');
-  const [font, setFont] = useState('Arial Black');
+  const [font, setFont] = useState('Archivo Variable');
+  const [look, setLook] = useState(0);
+  const song = project.name && project.name !== 'Untitled' ? project.name : 'TRACK NAME';
+  const addLogo = (whole: boolean) => {
+    const l = LOGO_LOOKS[look];
+    const extra: Partial<Clip> = { name: `Skimo Logo (${l.name})` };
+    const id = whole
+      ? addLayer('logo', extra, 0, undefined, project.duration)
+      : addLayer('logo', extra);
+    if (l.params || Object.keys(l.mods).length) useStore.getState().update((p) => {
+      const c = p.clips.find((x) => x.id === id);
+      if (!c) return;
+      Object.assign(c.params, l.params);
+      if (Object.keys(l.mods).length) c.mods = structuredClone(l.mods);
+    }, false);
+  };
+  const titles: { name: string; extra: Partial<Clip>; params?: Record<string, number> }[] = [
+    { name: `SKIMO:${song.toUpperCase()}`, extra: { text: `SKIMO:${song}`, upper: true, wide: true, letterSpacing: 0.04, font: 'Archivo Variable' }, params: { scale: 0.55, y: -0.78 } },
+    { name: song.toUpperCase(), extra: { text: song, upper: true, wide: true, letterSpacing: 0.08, font: 'Archivo Variable' }, params: { scale: 0.45, y: -0.8 } },
+    { name: `SKIMO · No. 01`, extra: { text: 'SKIMO · No. 01', upper: true, wide: true, letterSpacing: 0.12, font: 'Archivo Variable' }, params: { scale: 0.32, y: 0.85 } }
+  ];
   return (
     <>
-      <h3>Text</h3>
+      <h3>Skimo</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>Your stencil logo. Everything underneath shows through the letters, each letter reacts to its own part of the track and the shape glitches, skews and morphs with the music.</div>
+      <div style={{ borderRadius: 10, overflow: 'hidden', background: 'linear-gradient(135deg, #f08a2c, #b04a32 40%, #111114)', padding: 14 }}>
+        <div style={{ background: 'var(--accent)', WebkitMaskImage: `url(${logoUrl})`, maskImage: `url(${logoUrl})`, WebkitMaskSize: 'contain', maskSize: 'contain', WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat', WebkitMaskPosition: 'center', maskPosition: 'center', aspectRatio: '2.06', backgroundColor: '#1fb5c8' }} />
+      </div>
+      <h4>Logo style</h4>
+      <div className="col" style={{ gap: 4 }}>
+        {LOGO_LOOKS.map((l, i) => (
+          <div key={l.name} className={'palette-row' + (look === i ? ' on' : '')} onClick={() => setLook(i)}>
+            <div><div className="small" style={{ color: 'var(--text)' }}>{l.name}</div><div className="tiny muted">{l.desc}</div></div>
+          </div>
+        ))}
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="primary" onClick={() => addLogo(true)}>Add logo for the whole song</button>
+        <button onClick={() => addLogo(false)}>Add at playhead</button>
+      </div>
+      <div className="hint">Put the logo on the top track so everything else shows through it. Every reaction is a normal setting you can change or relink with 🔗.</div>
+
+      <h4>Titles</h4>
+      <div className="col" style={{ gap: 4 }}>
+        {titles.map((tl) => (
+          <div key={tl.name} className="card" style={{ cursor: 'grab' }} draggable onDragStart={(e) => setDragData(e, { type: 'text', ...tl.extra })}
+            onDoubleClick={() => addTitle(tl)}>
+            <div className="title" style={{ fontFamily: 'Archivo Variable', fontStretch: '125%', letterSpacing: '0.06em' }}>{tl.name}</div>
+            <button className="add primary small" onClick={() => addTitle(tl)}>+</button>
+          </div>
+        ))}
+      </div>
+
+      <h4>Any text</h4>
       <div className="col">
-        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Artist name, track title…" />
+        <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Any words…" />
         <select value={font} onChange={(e) => setFont(e.target.value)} style={{ fontFamily: font }}>
-          {TEXT_FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+          {TEXT_FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f === 'Archivo Variable' ? 'Archivo (Skimo titles)' : f}</option>)}
         </select>
-        <div className="row">
-          <button className="primary" onClick={() => addLayer('text', { text, font, name: text.split('\n')[0].slice(0, 30) })}>Add text at playhead</button>
-          <div draggable onDragStart={(e) => setDragData(e, { type: 'text', text, font })} className="muted small" style={{ cursor: 'grab' }}>or drag ⠿</div>
-        </div>
-        <div className="hint">Text uses the same effects as images: pulse, glitch, melt, break into particles and more. Pick it on the timeline to adjust.</div>
+        <button onClick={() => addLayer('text', { text, font, name: text.split('\n')[0].slice(0, 30) })}>Add text at playhead</button>
+      </div>
+    </>
+  );
+}
+
+function addTitle(tl: { name: string; extra: Partial<Clip>; params?: Record<string, number> }) {
+  const id = addLayer('text', { ...tl.extra, name: tl.name, fadeIn: 0.6, fadeOut: 0.8 });
+  if (tl.params) useStore.getState().update((p) => { const c = p.clips.find((x) => x.id === id); if (c) Object.assign(c.params, tl.params, { colour: '#ffffff', tint: 1 }); }, false);
+}
+
+function TransitionsPanel() {
+  useStore((s) => s.selection);
+  const sel = selectedClips();
+  const project = useStore((s) => s.project)!;
+  const target = sel.length === 1 ? sel[0] : null;
+  const prev = target ? project.clips.find((c) => c !== target && c.trackId === target.trackId && Math.abs(c.end - target.start) < 0.05) : null;
+  return (
+    <>
+      <h3>Transitions</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>Drag a transition onto the join between two clips that touch on the same track. Anything on a higher track still sits on top.</div>
+      {target && (
+        <div className="hint">{prev ? <>Click a transition to put it at the start of <b>{target.name}</b>.</> : <>The selected clip has nothing touching its start on the same track. Line two clips up end to start (snapping helps) and the join can take a transition.</>}</div>
+      )}
+      <div className="cards">
+        {TRANSITIONS.map((t) => (
+          <div key={t.id} className="card" draggable onDragStart={(e) => setDragData(e, { transition: t.id })} title={t.description}
+            onClick={() => { if (target && prev) useStore.getState().update((p) => { const c = p.clips.find((x) => x.id === target.id); if (c) c.transitionIn = { type: t.id, duration: Math.max(0.25, Math.min(1.5, (60 / p.bpm) * 2)) }; }); }}>
+            <div className="title">⧓ {t.name}</div>
+            <div className="desc">{t.description}</div>
+          </div>
+        ))}
       </div>
     </>
   );

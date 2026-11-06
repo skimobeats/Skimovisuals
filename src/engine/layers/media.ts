@@ -104,7 +104,7 @@ vec4 layer(){
   if (mi == 2 || mi == 3) p.y = abs(p.y);
   if (mi == 4){ float n = floor(p_segments); float a = atan(p.y, p.x); float r = length(p); float s = TAU / n; a = mod(a, s); a = abs(a - s * 0.5); p = vec2(cos(a), sin(a)) * r; }
   p -= vec2(p_x * aspect() * 0.5, p_y * 0.5);
-  p = rot(radians(p_rotate) + u_time * p_spin) * p;
+  p = rot(radians(p_rotate) + u_spin) * p;
   p /= max(0.01, p_scale * (1.0 + p_pulse * 0.35));
   if (mi == 5){ vec2 tl = vec2(aspect(), 1.0) / floor(p_tiles); p = abs(mod(p + tl * 0.5, tl * 2.0) - tl) - tl * 0.5; p *= floor(p_tiles); }
   if (p_warp > 0.0) p += (vec2(fbm(p * p_warpScale + u_time * 0.2), fbm(p * p_warpScale + 4.0 - u_time * 0.2)) - 0.5) * p_warp * 0.5;
@@ -169,6 +169,6 @@ export const MEDIA_LAYERS: LayerDef[] = [
 ];
 
 export const TEXT_FONTS = [
-  'Arial Black', 'Arial', 'Impact', 'Bahnschrift', 'Segoe UI', 'Segoe UI Black', 'Verdana', 'Tahoma', 'Trebuchet MS',
+  'Archivo Variable', 'Arial Black', 'Arial', 'Impact', 'Bahnschrift', 'Segoe UI', 'Segoe UI Black', 'Verdana', 'Tahoma', 'Trebuchet MS',
   'Georgia', 'Times New Roman', 'Courier New', 'Consolas', 'Lucida Console', 'Franklin Gothic Medium', 'Gill Sans MT', 'Century Gothic', 'Comic Sans MS'
 ];

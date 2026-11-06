@@ -3,12 +3,13 @@ import type { Clip, Marker, Project } from './types';
 import { makeClip, uid } from './store';
 import { getDef } from './engine/registry';
 import { analyses } from './audio/audio';
-import { PASTEL_IDS, PRESET_PALETTES } from './palettes';
+import { PASTEL_IDS, PRESET_PALETTES, SKIMO_IDS } from './palettes';
 import { mod } from './engine/layers/types';
 
 export interface GenerateOptions {
   style: string;
-  colours: 'pastel' | 'style' | 'any';
+  colours: 'skimo' | 'pastel' | 'style' | 'any';
+  logo: boolean;
   intensity: number;   // 0..1
   useMedia: boolean;
   title: string;
@@ -22,6 +23,9 @@ interface Style {
 }
 
 export const STYLES: Style[] = [
+  { id: 'skimo', name: 'Skimo', description: 'Your logo front and centre over dark, glowing, reactive visuals. The signature look.',
+    backgrounds: ['gradient', 'fractal', 'tunnel', 'particles', 'contours'], overlays: ['particles', 'lasers', 'shapes'], always: ['bloom', 'film'], peak: ['shake', 'rgbsplit', 'kaleido'], finish: [],
+    palettes: SKIMO_IDS, mediaTransitions: [1, 2, 3], mediaLook: { paletteMap: 0.3 } },
   { id: 'pastel', name: 'Pastel Dream', description: 'Soft, floaty and warm. Ideal for lofi and chilled tracks.',
     backgrounds: ['gradient', 'liquid', 'contours'], overlays: ['particles', 'dots', 'shapes'], always: ['film'], peak: ['feedback', 'warp'], finish: ['bloom'],
     palettes: PASTEL_IDS, mediaTransitions: [1, 0, 3], mediaLook: { warp: 0.15, paletteMap: 0.25 } },
@@ -148,7 +152,8 @@ export function generate(project: Project, opts: GenerateOptions) {
 
   // palettes
   let palPool = style.palettes;
-  if (opts.colours === 'pastel') palPool = PASTEL_IDS;
+  if (opts.colours === 'skimo') palPool = SKIMO_IDS;
+  else if (opts.colours === 'pastel') palPool = PASTEL_IDS;
   else if (opts.colours === 'any') palPool = PRESET_PALETTES.map((p) => p.id);
   const palA = pick(palPool);
   let palB = pick(palPool); if (palB === palA && palPool.length > 1) palB = palPool[(palPool.indexOf(palA) + 1) % palPool.length];
@@ -158,8 +163,8 @@ export function generate(project: Project, opts: GenerateOptions) {
 
   // fresh tracks
   const T = (name: string) => ({ id: uid(), name, hidden: false, locked: false });
-  const tBg = T('Background'), tMedia = T('Images'), tOver = T('Overlay'), tText = T('Text'), tFx1 = T('Effects'), tFx2 = T('Drop effects'), tFin = T('Finish');
-  project.tracks = [tBg, tMedia, tOver, tText, tFx1, tFx2, tFin];
+  const tBg = T('Background'), tMedia = T('Images'), tOver = T('Overlay'), tText = T('Text'), tFx1 = T('Effects'), tFx2 = T('Drop effects'), tFin = T('Finish'), tLogo = T('Logo');
+  project.tracks = [tBg, tMedia, tOver, tFx1, tFx2, tFin, tLogo, tText];
   project.clips = [];
   const media = opts.useMedia ? project.media.map((m) => m.id) : [];
   const dur = project.duration;
@@ -229,9 +234,10 @@ export function generate(project: Project, opts: GenerateOptions) {
     project.clips.push(fx);
   }
   // a gentle kick flash in the loudest sections when going wild
-  if (intensity > 0.7) {
+  if (intensity > 0.85) {
     for (const s of sections) if (s.energy > 0.75) {
-      const fl = makeClip('flash', tFin.id, s.start, s.end, { opacity: 0.5 });
+      const fl = makeClip('flash', tFin.id, s.start, s.end, { opacity: 0.3 });
+      fl.params.colour = 'p2';
       if (!project.clips.some((c) => c.trackId === tFin.id && c.start < s.end && c.end > s.start)) project.clips.push(fl);
     }
   }
@@ -240,13 +246,53 @@ export function generate(project: Project, opts: GenerateOptions) {
   if (opts.title.trim()) {
     const first = sections[0];
     const len = Math.min(first.end - first.start, (60 / project.bpm) * project.beatsPerBar * 8, 16);
-    const t1 = makeClip('text', tText.id, first.start + 0.5, first.start + Math.max(4, len), { text: opts.title.trim(), fadeIn: 1, fadeOut: 1.5, font: pick(['Arial Black', 'Impact', 'Bahnschrift', 'Segoe UI Black']) });
-    t1.params.colour = 'p1';
+    const t1 = makeClip('text', tText.id, first.start + 0.5, first.start + Math.max(4, len), { text: opts.title.trim(), fadeIn: 1, fadeOut: 1.5, font: 'Archivo Variable', upper: true, wide: true, letterSpacing: 0.05 });
+    Object.assign(t1.params, { colour: '#ffffff', tint: 1, scale: 0.5, y: opts.logo ? -0.78 : 0 });
     t1.mods.glitch = mod('snare', 0.3, 0.15);
     project.clips.push(t1);
     const last = sections[sections.length - 1];
-    const t2 = makeClip('text', tText.id, Math.max(t1.end + 1, dur - 8), dur, { text: opts.title.trim(), fadeIn: 1, fadeOut: 3, font: t1.font });
+    const t2 = makeClip('text', tText.id, Math.max(t1.end + 1, dur - 8), dur, { text: opts.title.trim(), fadeIn: 1, fadeOut: 3, font: t1.font, upper: true, wide: true, letterSpacing: 0.05 });
+    Object.assign(t2.params, t1.params);
     if (t2.end - t2.start > 2 && last) project.clips.push(t2);
+  }
+
+  // the Skimo logo sits on top most of the time, dropping out briefly before big moments
+  if (opts.logo) {
+    const barLen = (60 / project.bpm) * project.beatsPerBar;
+    let prevLogo: Clip | null = null;
+    sections.forEach((s, i) => {
+      const next = sections[i + 1];
+      let end = s.end;
+      // let the visuals take over for the last two bars before a drop
+      if (next && next.energy > 0.6 && s.energy < next.energy && s.end - s.start > barLen * 6) end = s.end - barLen * 2;
+      const lc = makeClip('logo', tLogo.id, s.start, end, { name: 'Skimo Logo' });
+      const e = s.energy;
+      for (const m of Object.values(lc.mods)) m.amount *= 0.6 + intensity * 0.5 + e * 0.4;
+      if (e > 0.7) { lc.mods.glitch = mod('snare', 0.45 + intensity * 0.35, 0.15); if (intensity > 0.8) lc.mods.shatter = mod('section', 0.5, 0.6); lc.params.letterFx = pick([0, 3, 5]); }
+      else if (e < 0.35) { lc.params.melt = 0.1; lc.params.morphShape = 3; lc.mods.morph = mod('bass', 0.35, 0.4); lc.params.letterFx = pick([0, 1, 4]); }
+      else lc.params.letterFx = pick([0, 1, 3]);
+      lc.params.colour = pick(['p0', 'p0', 'p1']);
+      lc.params.scale = 0.75 + r() * 0.2;
+      if (prevLogo && Math.abs(prevLogo.end - lc.start) < 0.05) lc.transitionIn = { type: e > 0.6 ? pick(['glitch', 'flash', 'skimo']) : pick(['skimo', 'fade', 'liquid']), duration: (60 / project.bpm) * (e > 0.6 ? 1 : 2) };
+      if (i === 0) lc.fadeIn = Math.min(3, (lc.end - lc.start) / 3);
+      project.clips.push(lc);
+      prevLogo = lc;
+    });
+    // colours react to the music too
+    project.colourReact = intensity > 0.6
+      ? { hueSource: 'bass', hueAmount: 0.04, swapOn: 'snare', brightSource: 'kick', brightAmount: 0.15 }
+      : { hueSource: 'barwave', hueAmount: 0.04, swapOn: 'section', brightSource: 'kick', brightAmount: 0.15 };
+  }
+
+  // join neighbouring clips on the same track with transitions rather than hard cuts
+  for (const track of [tBg.id, tMedia.id, tOver.id]) {
+    const onTrack = project.clips.filter((c) => c.trackId === track).sort((a, b) => a.start - b.start);
+    for (let i = 1; i < onTrack.length; i++) {
+      const c = onTrack[i];
+      if (Math.abs(onTrack[i - 1].end - c.start) > 0.05 || c.transitionIn) continue;
+      const energyUp = (sections.find((s) => Math.abs(s.start - c.start) < 0.05)?.energy ?? 0.5) > 0.6;
+      c.transitionIn = { type: energyUp ? pick(['flash', 'zoom', 'glitch', 'skimo']) : pick(['fade', 'liquid', 'dipblack', 'fade']), duration: (60 / project.bpm) * (energyUp ? 1 : 4) };
+    }
   }
 
   // fade from and to black

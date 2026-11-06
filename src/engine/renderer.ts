@@ -1,8 +1,10 @@
 import type { Clip, MediaItem, Project } from '../types';
-import { VERT, HEADER, COPY_FRAG, BLEND_FRAG, BLEND_MODES } from './glsl';
+import { VERT, HEADER, COPY_FRAG, BLEND_FRAG, BLEND_MODES, TRANSITION_FRAG } from './glsl';
+import { TRANSITION_MAP } from './transitions';
+import logoMaskUrl from '../assets/skimo-logo-mask.png';
 import { getDef, PADS, PAD_MAP } from './registry';
 import type { LayerDef } from './layers/types';
-import { evalNumber, paletteAt, colourValue, clipClock, clipOpacity, hashString, resetClocks, Rgb } from './params';
+import { evalNumber, paletteAt, colourValue, clipClock, clipSpin, stepPhase, clipOpacity, hashString, resetClocks, Rgb } from './params';
 import { beatInfo, spectrumAt, lastHitIndex } from '../audio/sources';
 import { platform } from '../platform';
 import { SEQ_CHANGE } from './layers/media';
@@ -19,7 +21,10 @@ export class Renderer {
   private programs = new Map<string, Program>();
   private copyProg: Program;
   private blendProg: Program;
+  private transProg: Program;
   private accA!: Target; private accB!: Target; private layer!: Target; private out8?: Target;
+  private tmpA!: Target; private tmpB!: Target;
+  private logo: { tex: WebGLTexture; ready: boolean; img: HTMLImageElement };
   private feedback = new Map<string, { a: Target; b: Target; lastT: number }>();
   private media = new Map<string, MediaTex>();
   private textTex = new Map<string, { key: string; tex: WebGLTexture; w: number; h: number }>();
@@ -42,7 +47,20 @@ export class Renderer {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     this.copyProg = this.compile('__copy', COPY_FRAG);
     this.blendProg = this.compile('__blend', BLEND_FRAG);
+    this.transProg = this.compile('__transition', TRANSITION_FRAG);
     this.black = this.makeTex(1, 1, new Uint8Array([0, 0, 0, 0]));
+    // the Skimo logo masks
+    const img = new Image();
+    this.logo = { tex: this.makeTex(1, 1, new Uint8Array([0, 0, 0, 0])), ready: false, img };
+    img.onload = () => {
+      gl.bindTexture(gl.TEXTURE_2D, this.logo.tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      this.logo.ready = true;
+      this.onMediaReady?.();
+    };
+    img.src = logoMaskUrl;
   }
 
   // ---------- GL helpers ----------
@@ -135,8 +153,10 @@ export class Renderer {
     this.w = w; this.h = h;
     this.canvas.width = w; this.canvas.height = h;
     this.freeTarget(this.accA); this.freeTarget(this.accB); this.freeTarget(this.layer); this.freeTarget(this.out8);
+    this.freeTarget(this.tmpA); this.freeTarget(this.tmpB);
     this.out8 = undefined;
     this.accA = this.makeTarget(w, h); this.accB = this.makeTarget(w, h); this.layer = this.makeTarget(w, h);
+    this.tmpA = this.makeTarget(w, h); this.tmpB = this.makeTarget(w, h);
     for (const f of this.feedback.values()) { this.freeTarget(f.a); this.freeTarget(f.b); }
     this.feedback.clear();
   }
@@ -182,6 +202,9 @@ export class Renderer {
 
   /** Wait until every image and video in the project has loaded (used before exporting) */
   async preloadMedia(project: Project) {
+    const fonts = [...new Set(project.clips.filter((c) => c.type === 'text').map((c) => c.font || 'Archivo Variable'))];
+    await Promise.all(fonts.map((f) => document.fonts.load(`160px "${f}"`).catch(() => null)));
+    if (!this.logo.ready) await new Promise<void>((res) => { this.logo.img.addEventListener('load', () => res(), { once: true }); setTimeout(res, 5000); });
     await Promise.all(project.media.map((item) => {
       const m = this.mediaTex(item);
       if (m.ready || !m.el) return null;
@@ -246,23 +269,35 @@ export class Renderer {
   }
 
   private textTexture(clip: Clip): { tex: WebGLTexture; w: number; h: number } {
-    const text = clip.text || 'TEXT';
-    const font = clip.font || 'Arial Black';
-    const key = `${text}|${font}`;
+    let text = clip.text || 'TEXT';
+    if (clip.upper) text = text.toUpperCase();
+    const font = clip.font || 'Archivo Variable';
+    const spacing = clip.letterSpacing ?? 0;
+    const wide = !!clip.wide;
+    const size = 160;
+    const fontStr = `${wide ? '' : ''}700 ${size}px "${font}", Arial, sans-serif`;
+    const loaded = document.fonts.check(`${size}px "${font}"`);
+    const key = `${text}|${font}|${spacing}|${wide}|${loaded}`;
     const cached = this.textTex.get(clip.id);
     if (cached && cached.key === key) return cached;
+    if (!loaded) document.fonts.load(`${size}px "${font}"`).then(() => this.onMediaReady?.()).catch(() => {});
     if (cached) this.gl.deleteTexture(cached.tex);
     const lines = text.split('\n');
-    const size = 160;
     const c = document.createElement('canvas');
     const ctx = c.getContext('2d')!;
-    ctx.font = `${size}px "${font}", Arial, sans-serif`;
-    const w = Math.ceil(Math.max(...lines.map((l) => ctx.measureText(l).width), 10)) + size * 0.4;
+    const setup = () => {
+      ctx.font = fontStr;
+      (ctx as any).fontStretch = wide ? 'expanded' : 'normal';
+      (ctx as any).letterSpacing = `${Math.round(spacing * size)}px`;
+    };
+    setup();
+    const w = Math.ceil(Math.max(...lines.map((l) => ctx.measureText(l).width), 10) + size * 0.5);
     const h = Math.ceil(lines.length * size * 1.15 + size * 0.3);
     c.width = w; c.height = h;
-    ctx.font = `${size}px "${font}", Arial, sans-serif`;
+    setup();
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    lines.forEach((l, i) => ctx.fillText(l, w / 2, size * 0.15 + size * 1.15 * (i + 0.5)));
+    // letter spacing adds space after the last letter too, so nudge to keep it centred
+    lines.forEach((l, i) => ctx.fillText(l, w / 2 + (spacing * size) / 2, size * 0.15 + size * 1.15 * (i + 0.5)));
     const tex = this.makeTex(1, 1);
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -328,6 +363,8 @@ export class Renderer {
     gl.uniform1f(this.loc(p, 'u_seed'), hashString(clip.id) * 100);
     gl.uniform3fv(this.loc(p, 'u_pal'), new Float32Array(pal.flat()));
     gl.uniform1fv(this.loc(p, 'u_spec'), this.spec);
+    gl.uniform1f(this.loc(p, 'u_spin'), clipSpin(project, clip, def, t));
+    gl.uniform1f(this.loc(p, 'u_step'), stepPhase(project, clip, t));
     for (const pd of def.params) {
       const l = this.loc(p, 'p_' + pd.key);
       if (!l) continue;
@@ -336,7 +373,8 @@ export class Renderer {
     }
   }
 
-  private renderClip(project: Project, clip: Clip, t: number, w: number, h: number, opacityMul = 1) {
+  /** Draw one layer into a texture. Effects and the logo read the image built up so far. */
+  private renderLayer(project: Project, clip: Clip, t: number, w: number, h: number, into: Target): WebGLTexture {
     const def = getDef(clip.type);
     const p = this.program(def);
     const gl = this.gl;
@@ -361,8 +399,10 @@ export class Renderer {
       this.bindTex(p, 'u_tex0', 2, tt.tex); this.bindTex(p, 'u_tex1', 3, tt.tex);
       gl.uniform2f(this.loc(p, 'u_tex0Res'), tt.w, tt.h);
       gl.uniform2f(this.loc(p, 'u_tex1Res'), tt.w, tt.h);
+    } else if (def.category === 'logo') {
+      this.bindTex(p, 'u_tex0', 2, this.logo.tex);
     }
-    let target = this.layer;
+    let target = into;
     let fbEntry: { a: Target; b: Target; lastT: number } | undefined;
     if (def.feedback) {
       fbEntry = this.feedback.get(clip.id);
@@ -378,17 +418,47 @@ export class Renderer {
       this.bindTex(p, 'u_prev', 1, this.black);
     }
     this.draw(p, target, w, h);
-    if (fbEntry) { const tmp = fbEntry.a; fbEntry.a = fbEntry.b; fbEntry.b = tmp; fbEntry.lastT = t; }
+    if (fbEntry) { const tmp = fbEntry.a; fbEntry.a = fbEntry.b; fbEntry.b = tmp; fbEntry.lastT = t; return fbEntry.a.tex; }
+    return target.tex;
+  }
 
-    // blend onto the accumulated image
+  /** Blend a finished layer texture onto the image built up so far */
+  private composite(tex: WebGLTexture, blend: Clip['blend'], opacity: number, w: number, h: number) {
+    const gl = this.gl;
     const bp = this.blendProg;
     gl.useProgram(bp.prog);
-    this.bindTex(bp, 'u_src', 0, target.tex);
+    this.bindTex(bp, 'u_src', 0, tex);
     this.bindTex(bp, 'u_dst', 1, this.accA.tex);
-    gl.uniform1f(this.loc(bp, 'u_opacity'), clipOpacity(clip, t) * opacityMul);
-    gl.uniform1i(this.loc(bp, 'u_mode'), Math.max(0, BLEND_MODES.indexOf(clip.blend)));
+    gl.uniform1f(this.loc(bp, 'u_opacity'), opacity);
+    gl.uniform1i(this.loc(bp, 'u_mode'), Math.max(0, BLEND_MODES.indexOf(blend)));
     this.draw(bp, this.accB, w, h);
     const tmp = this.accA; this.accA = this.accB; this.accB = tmp;
+  }
+
+  private renderClip(project: Project, clip: Clip, t: number, w: number, h: number) {
+    const tex = this.renderLayer(project, clip, t, w, h, this.layer);
+    this.composite(tex, clip.blend, clipOpacity(clip, t), w, h);
+  }
+
+  /** Two clips on the same track blending through a transition */
+  private renderTransition(project: Project, from: Clip, to: Clip, progress: number, t: number, w: number, h: number) {
+    const a = this.renderLayer(project, from, t, w, h, this.tmpA);
+    const b = this.renderLayer(project, to, t, w, h, this.tmpB);
+    const gl = this.gl;
+    const tp = this.transProg;
+    gl.useProgram(tp.prog);
+    this.bindTex(tp, 'u_from', 0, a);
+    this.bindTex(tp, 'u_to', 1, b);
+    gl.uniform1f(this.loc(tp, 'u_p'), progress);
+    gl.uniform1i(this.loc(tp, 'u_type'), TRANSITION_MAP.get(to.transitionIn!.type)?.index ?? 0);
+    gl.uniform2f(this.loc(tp, 'u_res'), w, h);
+    gl.uniform1f(this.loc(tp, 'u_seed'), hashString(to.id) * 50);
+    const pal = paletteAt(project, t, to.paletteId);
+    gl.uniform3f(this.loc(tp, 'u_col'), pal[0][0], pal[0][1], pal[0][2]);
+    this.draw(tp, this.layer, w, h);
+    const fadeA = clipOpacity({ ...from, end: Math.max(from.end, t + 1), fadeOut: 0 }, t);
+    const fadeB = clipOpacity({ ...to, start: Math.min(to.start, t - 1), fadeIn: 0 }, t);
+    this.composite(this.layer.tex, progress < 0.5 ? from.blend : to.blend, fadeA + (fadeB - fadeA) * progress, w, h);
   }
 
   private texFor(project: Project, id: string | undefined, t: number) {
@@ -413,12 +483,28 @@ export class Renderer {
     gl.viewport(0, 0, w, h);
     gl.clearColor(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    const trackOrder = new Map(project.tracks.map((tr, i) => [tr.id, i]));
-    const hidden = new Set(project.tracks.filter((tr) => tr.hidden).map((tr) => tr.id));
-    const active = project.clips
-      .filter((c) => t >= c.start && t < c.end && !hidden.has(c.trackId) && trackOrder.has(c.trackId))
-      .sort((a, b) => (trackOrder.get(a.trackId)! - trackOrder.get(b.trackId)!) || a.start - b.start);
-    for (const c of active) this.renderClip(project, c, t, w, h);
+    for (const track of project.tracks) {
+      if (track.hidden) continue;
+      const clips = project.clips.filter((c) => c.trackId === track.id).sort((a, b) => a.start - b.start);
+      const used = new Set<string>();
+      const items: { start: number; run: () => void }[] = [];
+      // transitions sit across the join between a clip and the one just before it
+      for (const c of clips) {
+        const tr = c.transitionIn;
+        if (!tr || tr.duration <= 0) continue;
+        const prev = clips.find((x) => x !== c && Math.abs(x.end - c.start) < 0.05);
+        if (!prev) continue;
+        const half = Math.min(tr.duration / 2, (c.end - c.start) / 2, (prev.end - prev.start) / 2);
+        if (t >= c.start - half && t < c.start + half && !used.has(prev.id) && !used.has(c.id)) {
+          used.add(prev.id); used.add(c.id);
+          const progress = (t - (c.start - half)) / (2 * half);
+          items.push({ start: prev.start, run: () => this.renderTransition(project, prev, c, progress, t, w, h) });
+        }
+      }
+      for (const c of clips) if (!used.has(c.id) && t >= c.start && t < c.end) items.push({ start: c.start, run: () => this.renderClip(project, c, t, w, h) });
+      items.sort((a, b) => a.start - b.start);
+      for (const it of items) it.run();
+    }
     // performance pads on top of everything
     const padIds = new Set(extraPads);
     for (const e of project.pads) if (t >= e.start && t < e.end) padIds.add(e.pad);

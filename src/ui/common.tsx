@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { useStore } from '../store';
 import type { Palette } from '../types';
 
@@ -57,4 +57,39 @@ export function PaletteStrip({ palette, width }: { palette: Palette; width?: num
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return <><label className="small">{label}</label><div className="row">{children}</div></>;
+}
+
+/**
+ * A number box you can type into freely. The value is only checked and saved
+ * when you press Enter, click away, or use the arrow buttons.
+ */
+export function NumberInput({ value, onCommit, min, max, step = 1, width = 70, decimals, title, onFocus, className, plain }: {
+  value: number; onCommit: (v: number) => void; min?: number; max?: number; step?: number; width?: number; decimals?: number; title?: string; onFocus?: () => void; className?: string; plain?: boolean;
+}) {
+  const fmt = (v: number) => (decimals !== undefined ? String(Number(v.toFixed(decimals))) : String(v));
+  const [text, setText] = useState(fmt(value));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { if (!editing) setText(fmt(value)); }, [value, editing]);
+  const commit = (raw: string) => {
+    const v = parseFloat(raw);
+    if (isNaN(v)) { setText(fmt(value)); return; }
+    const clamped = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, v));
+    setText(fmt(clamped));
+    if (clamped !== value) onCommit(clamped);
+  };
+  return (
+    <input type={plain ? 'text' : 'number'} className={className} style={className ? undefined : { width }} value={text} step={step} min={min} max={max} title={title}
+      onFocus={() => { setEditing(true); onFocus?.(); }}
+      onChange={(e) => {
+        setText(e.target.value);
+        // the little up and down arrows should apply straight away
+        const ie = (e.nativeEvent as InputEvent).inputType;
+        if (!ie) commit(e.target.value);
+      }}
+      onBlur={(e) => { setEditing(false); commit(e.target.value); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { commit((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur(); }
+        if (e.key === 'Escape') { setText(fmt(value)); (e.target as HTMLInputElement).blur(); }
+      }} />
+  );
 }

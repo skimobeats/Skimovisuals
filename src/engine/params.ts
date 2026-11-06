@@ -1,7 +1,7 @@
 import type { Clip, Keyframe, Project } from '../types';
 import type { LayerDef, ParamDef } from './layers/types';
-import { sampleSource, beatInfo, lastHitIndex } from '../audio/sources';
-import { findPalette, hexToRgb } from '../palettes';
+import { sampleSource, beatInfo, lastHitIndex, eventCount } from '../audio/sources';
+import { findPalette, hexToRgb, hueRotate } from '../palettes';
 
 export function keyframeValue(keys: Keyframe[], t: number): number {
   if (t <= keys[0].t) return keys[0].v;
@@ -44,8 +44,32 @@ function paletteRgb(project: Project, id: string): Rgb[] {
 }
 function mixPal(a: Rgb[], b: Rgb[], f: number): Rgb[] { return a.map((c, i) => mixRgb(c, b[i], f)); }
 
-/** The four palette colours in use at time t */
+/** The four palette colours in use at time t, after the colour reactions are applied */
 export function paletteAt(project: Project, t: number, override?: string | null): Rgb[] {
+  let pal = basePaletteAt(project, t, override);
+  const cr = project.colourReact;
+  if (!cr) return pal;
+  if (cr.swapOn) {
+    // rotate the three main colours on each hit, keeping the darkest colour as the ground
+    const { count, since } = eventCount(project, cr.swapOn, t);
+    const k = count % 3;
+    const rot = (n: number) => [pal[n % 3], pal[(n + 1) % 3], pal[(n + 2) % 3], pal[3]];
+    const cur = rot(k), prev = rot((k + 2) % 3);
+    const f = Math.min(1, since / 0.08);
+    pal = count === 0 ? pal : mixPal(prev, cur, f);
+  }
+  if (cr.hueSource) {
+    const h = sampleSource(project, cr.hueSource, t, 0.3) * cr.hueAmount;
+    pal = pal.map((c, i) => (i === 3 ? c : hueRotate(c, h)));
+  }
+  if (cr.brightSource) {
+    const b = 1 + sampleSource(project, cr.brightSource, t, 0.2) * cr.brightAmount;
+    pal = pal.map((c, i) => (i === 3 ? c : [c[0] * b, c[1] * b, c[2] * b] as Rgb));
+  }
+  return pal;
+}
+
+function basePaletteAt(project: Project, t: number, override?: string | null): Rgb[] {
   if (override) return paletteRgb(project, override);
   const { beatLen, beatPos } = beatInfo(project, t);
   const cyc = project.paletteCycle;
@@ -95,30 +119,51 @@ const clocks = new Map<string, { t: number; phase: number }>();
 
 export function resetClocks() { clocks.clear(); }
 
-export function clipClock(project: Project, clip: Clip, def: LayerDef, t: number): number {
-  const sp = def.params.find((p) => p.key === 'speed');
-  const local = t - clip.start;
-  if (!sp) return local;
-  const speedAt = (time: number) => evalNumber(project, clip, sp, time);
-  const c = clocks.get(clip.id);
+/** Add up a rate setting over time (speed, spin) so changes to it never cause jumps */
+export function integrateParam(project: Project, clip: Clip, def: LayerDef, key: string, t: number, fallback: number): number {
+  const sp = def.params.find((p) => p.key === key);
+  if (!sp) return fallback;
+  const rateAt = (time: number) => evalNumber(project, clip, sp, time);
+  const ck = clip.id + ':' + key;
+  const c = clocks.get(ck);
   if (c && t >= c.t && t - c.t < 0.5) {
-    const phase = c.phase + (t - c.t) * (speedAt(c.t) + speedAt(t)) * 0.5;
-    clocks.set(clip.id, { t, phase });
+    const phase = c.phase + (t - c.t) * (rateAt(c.t) + rateAt(t)) * 0.5;
+    clocks.set(ck, { t, phase });
     return phase;
   }
   // recompute from the start of the clip
   const dt = 1 / 60;
   let phase = 0;
-  let prev = speedAt(clip.start);
-  for (let x = clip.start + dt; x <= t; x += dt) { const s = speedAt(x); phase += (prev + s) * 0.5 * dt; prev = s; }
-  clocks.set(clip.id, { t, phase });
+  let prev = rateAt(clip.start);
+  for (let x = clip.start + dt; x <= t; x += dt) { const s = rateAt(x); phase += (prev + s) * 0.5 * dt; prev = s; }
+  clocks.set(ck, { t, phase });
   return phase;
 }
 
+export function clipClock(project: Project, clip: Clip, def: LayerDef, t: number): number {
+  return integrateParam(project, clip, def, 'speed', t, t - clip.start);
+}
+
+export function clipSpin(project: Project, clip: Clip, def: LayerDef, t: number): number {
+  return integrateParam(project, clip, def, 'spin', t, 0);
+}
+
+/** Stepped rotation: whole number of steps taken so far, eased into each new step */
+export function stepPhase(project: Project, clip: Clip, t: number): number {
+  const on = ['', 'kick', 'snare', 'beat', 'bar', 'section'][Number(clip.params.step ?? 0)] || '';
+  if (!on) return 0;
+  const { count, since } = eventCount(project, on, t, clip.start);
+  const e = Math.min(1, since / 0.18);
+  const ease = 1 - Math.pow(1 - e, 3);
+  return count > 0 ? count - 1 + ease : 0;
+}
+
+const smooth = (x: number) => { const c = Math.max(0, Math.min(1, x)); return c * c * (3 - 2 * c); };
+
 export function clipOpacity(clip: Clip, t: number): number {
   let a = clip.opacity;
-  if (clip.fadeIn > 0) a *= Math.min(1, (t - clip.start) / clip.fadeIn);
-  if (clip.fadeOut > 0) a *= Math.min(1, (clip.end - t) / clip.fadeOut);
+  if (clip.fadeIn > 0) a *= smooth((t - clip.start) / clip.fadeIn);
+  if (clip.fadeOut > 0) a *= smooth((clip.end - t) / clip.fadeOut);
   return Math.max(0, Math.min(1, a));
 }
 

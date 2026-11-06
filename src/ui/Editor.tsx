@@ -28,6 +28,7 @@ export function deleteSelection() {
   if (!sel) return;
   st.update((p) => {
     if (sel.kind === 'clip') p.clips = p.clips.filter((c) => !sel.ids.includes(c.id));
+    if (sel.kind === 'transition') { const c = p.clips.find((x) => x.id === sel.id); if (c) c.transitionIn = null; }
     if (sel.kind === 'marker') p.markers = p.markers.filter((m) => m.id !== sel.id);
     if (sel.kind === 'pad') p.pads = p.pads.filter((m) => m.id !== sel.id);
     if (sel.kind === 'paletteKey') p.paletteKeys = p.paletteKeys.filter((m) => m.id !== sel.id);

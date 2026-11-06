@@ -10,6 +10,19 @@ import { defaultLength } from './actions';
 import { splitAtPlayhead, deleteSelection } from './Editor';
 import { presetById } from './PresetsPanel';
 import { fmtTime } from './common';
+import { TRANSITION_MAP } from '../engine/transitions';
+
+function FadeRamps({ w, h, fi, fo }: { w: number; h: number; fi: number; fo: number }) {
+  if (fi <= 0 && fo <= 0) return null;
+  return (
+    <svg className="fadesvg" width={w} height={h} style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}>
+      {fi > 0 && <polygon points={`0,0 ${fi},0 0,${h}`} fill="rgba(0,0,0,0.45)" />}
+      {fi > 0 && <line x1={0} y1={h} x2={fi} y2={0} stroke="rgba(255,255,255,0.85)" strokeWidth={1.5} />}
+      {fo > 0 && <polygon points={`${w - fo},0 ${w},0 ${w},${h}`} fill="rgba(0,0,0,0.45)" />}
+      {fo > 0 && <line x1={w - fo} y1={0} x2={w} y2={h} stroke="rgba(255,255,255,0.85)" strokeWidth={1.5} />}
+    </svg>
+  );
+}
 
 const RULER_H = 24;
 const WAVE_H = 44;
@@ -251,6 +264,22 @@ export function Timeline() {
   };
 
   // ---------- clips ----------
+  // drag the round handles on a clip's top corners to set its fades
+  const onFadeDown = (e: React.MouseEvent, clip: Clip, which: 'in' | 'out') => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    const st = useStore.getState();
+    const orig = which === 'in' ? clip.fadeIn : clip.fadeOut;
+    let cp = false;
+    const init = startDrag((dx) => {
+      if (!cp) { st.checkpoint(); cp = true; }
+      const len = clip.end - clip.start;
+      const v = Math.max(0, Math.min(len, orig + (which === 'in' ? dx : -dx) / zoom));
+      st.update((p) => { const c = p.clips.find((x) => x.id === clip.id); if (c) { if (which === 'in') c.fadeIn = Math.round(v * 100) / 100; else c.fadeOut = Math.round(v * 100) / 100; } }, false);
+    });
+    init(e.nativeEvent);
+  };
+
   const onClipDown = (e: React.MouseEvent, clip: Clip, mode: 'move' | 'l' | 'r') => {
     e.stopPropagation();
     setMenu(null);
@@ -398,6 +427,23 @@ export function Timeline() {
     const t = Math.max(0, snapper(pos.x / zoom, st.snap));
     const p = st.project!;
     const end = Math.min(p.duration, t + defaultLength(p));
+    if (data.transition) {
+      // transitions go on the join between two clips that touch on the same track
+      if (!trackId) { st.showToast('Drop transitions on the join between two clips on the same track'); return; }
+      const onTrack = p.clips.filter((c) => c.trackId === trackId);
+      let best: { next: Clip; d: number } | null = null;
+      for (const next of onTrack) {
+        const prev = onTrack.find((c) => c !== next && Math.abs(c.end - next.start) < 0.05);
+        if (!prev) continue;
+        const d = Math.abs(next.start * zoom - pos.x);
+        if (d < 60 && (!best || d < best.d)) best = { next, d };
+      }
+      if (!best) { st.showToast('Drop transitions on the join between two clips on the same track. The clips need to touch.'); return; }
+      const nextId = best.next.id;
+      st.update((pp) => { const c = pp.clips.find((x) => x.id === nextId); if (c) c.transitionIn = { type: data.transition, duration: Math.max(0.25, Math.min(1.5, 60 / pp.bpm * 2)) }; });
+      st.select({ kind: 'transition', id: nextId });
+      return;
+    }
     let extra: Partial<Clip> = {};
     let type = data.type;
     if (data.preset) { const pr = await presetById(data.preset); if (!pr) return; extra = structuredClone(pr.clip); type = pr.clip.type; }
@@ -524,13 +570,30 @@ export function Timeline() {
                   style={{ left: c.start * zoom, width: wpx, top: y + 3, height: TRACK_H - 6 }}
                   onMouseDown={(e) => onClipDown(e, c, 'move')}
                   onDoubleClick={(e) => { e.stopPropagation(); playback.seek(c.start); }}>
-                  {c.fadeIn > 0 && <div className="fade" style={{ left: 0, width: c.fadeIn * zoom, background: 'linear-gradient(90deg, rgba(0,0,0,0.5), transparent)' }} />}
-                  {c.fadeOut > 0 && <div className="fade" style={{ right: 0, width: c.fadeOut * zoom, background: 'linear-gradient(270deg, rgba(0,0,0,0.5), transparent)' }} />}
+                  <FadeRamps w={wpx} h={TRACK_H - 6} fi={Math.min(wpx, c.fadeIn * zoom)} fo={Math.min(wpx, c.fadeOut * zoom)} />
+                  <div className="fadehandle" title={`Fade in ${c.fadeIn.toFixed(2)}s. Drag to change.`} style={{ left: Math.min(wpx - 10, c.fadeIn * zoom) - 1 }} onMouseDown={(e) => onFadeDown(e, c, 'in')} />
+                  <div className="fadehandle" title={`Fade out ${c.fadeOut.toFixed(2)}s. Drag to change.`} style={{ left: Math.max(0, wpx - c.fadeOut * zoom) - 11 }} onMouseDown={(e) => onFadeDown(e, c, 'out')} />
                   {wpx > 30 && <div className="cname">{c.name}</div>}
                   {wpx > 30 && <div className="csub">{[sub, mods.length ? `🔗 ${mods.join(', ')}` : ''].filter(Boolean).join(' · ')}{Object.keys(c.keys).length ? ' · ◆' : ''}</div>}
                   <div className="handle l" onMouseDown={(e) => onClipDown(e, c, 'l')} />
                   <div className="handle r" onMouseDown={(e) => onClipDown(e, c, 'r')} />
                 </div>
+              );
+            })}
+            {project.clips.filter((c) => c.transitionIn && c.start > visT0 && c.start < visT1).map((c) => {
+              const prev = project.clips.find((x) => x !== c && x.trackId === c.trackId && Math.abs(x.end - c.start) < 0.05);
+              if (!prev) return null;
+              const d = c.transitionIn!.duration;
+              const wpx = Math.max(16, d * zoom);
+              const sel = selection?.kind === 'transition' && selection.id === c.id;
+              return (
+                <div key={'tr' + c.id} className={'transbadge' + (sel ? ' sel' : '')} title={`${TRANSITION_MAP.get(c.transitionIn!.type)?.name ?? 'Transition'} (${d.toFixed(2)}s). Click to edit, right click to remove.`}
+                  style={{ left: c.start * zoom - wpx / 2, width: wpx, top: trackY(c.trackId) + TRACK_H / 2 - 10 }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    if (e.button === 2) { useStore.getState().update((p) => { const x = p.clips.find((y) => y.id === c.id); if (x) x.transitionIn = null; }); return; }
+                    useStore.getState().select({ kind: 'transition', id: c.id });
+                  }}>⧓</div>
               );
             })}
             {!project.clips.length && project.audio.length > 0 && (

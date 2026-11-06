@@ -8,12 +8,13 @@ import { listSources, sampleSource } from '../audio/sources';
 import { baseValue, paletteAt } from '../engine/params';
 import { allPalettes, rgbToHex } from '../palettes';
 import { perform } from '../perform';
-import { fmtTime } from './common';
+import { fmtTime, NumberInput } from './common';
 import { CATEGORY_COLOUR } from './actions';
 import { platform } from '../platform';
 import { TEXT_FONTS } from '../engine/layers/media';
 import { BLEND_MODES } from '../engine/glsl';
 import { deleteSelection } from './Editor';
+import { TRANSITIONS } from '../engine/transitions';
 
 function updateClip(id: string, fn: (c: Clip) => void, history = true) {
   useStore.getState().update((p) => { const c = p.clips.find((x) => x.id === id); if (c) fn(c); }, history);
@@ -28,6 +29,34 @@ export function Inspector() {
     if (clips.length === 0) return <NothingSelected />;
     if (clips.length > 1) return <MultiClip clips={clips} />;
     return <ClipInspector clip={clips[0]} />;
+  }
+  if (selection.kind === 'transition') {
+    const c = project.clips.find((x) => x.id === selection.id);
+    if (!c || !c.transitionIn) return <NothingSelected />;
+    const tr = c.transitionIn;
+    const upd = (fn: (x: NonNullable<Clip['transitionIn']>) => void) => updateClip(c.id, (cl) => { if (cl.transitionIn) fn(cl.transitionIn); });
+    return (
+      <div className="insp">
+        <div className="insp-head"><b>Transition into {c.name}</b></div>
+        <div className="kv">
+          <label>Length</label>
+          <div className="row"><NumberInput value={tr.duration} min={0.05} max={8} step={0.05} decimals={2} onCommit={(v) => upd((x) => { x.duration = v; })} /><span className="tiny muted">seconds</span></div>
+          <span />
+          <div className="row" style={{ flexWrap: 'wrap', gap: 4 }}>
+            {[0.5, 1, 2, 4].map((b) => <button key={b} className="small" onClick={() => upd((x) => { x.duration = (60 / project.bpm) * b; })}>{b} beat{b === 1 ? '' : 's'}</button>)}
+          </div>
+        </div>
+        <h4 className="muted small" style={{ margin: '12px 0 6px' }}>Style</h4>
+        <div className="col" style={{ gap: 4 }}>
+          {TRANSITIONS.map((d) => (
+            <div key={d.id} className={'palette-row' + (tr.type === d.id ? ' on' : '')} onClick={() => upd((x) => { x.type = d.id; })}>
+              <div><div className="small" style={{ color: 'var(--text)' }}>{d.name}</div><div className="tiny muted">{d.description}</div></div>
+            </div>
+          ))}
+        </div>
+        <div className="row" style={{ marginTop: 12 }}><button className="danger" onClick={deleteSelection}>Remove transition</button></div>
+      </div>
+    );
   }
   if (selection.kind === 'marker') {
     const m = project.markers.find((x) => x.id === selection.id);
@@ -54,7 +83,7 @@ export function Inspector() {
         <div className="insp-head"><b>Colour change</b></div>
         <div className="kv">
           <label>Time</label><TimeInput value={k.t} onChange={(v) => upd((x) => { x.t = v; })} />
-          <label>Fade (beats)</label><input type="number" min={0} max={32} step={0.25} value={k.fade} onChange={(e) => upd((x) => { x.fade = Number(e.target.value); }, false)} />
+          <label>Fade (beats)</label><NumberInput value={k.fade} min={0} max={32} step={0.25} onCommit={(v) => upd((x) => { x.fade = v; })} />
         </div>
         <h4 className="muted small" style={{ margin: '12px 0 6px' }}>Change to</h4>
         <div className="col" style={{ gap: 2 }}>
@@ -166,11 +195,15 @@ function ClipInspector({ clip }: { clip: Clip }) {
         <div className="kv">
           <label>Start</label><TimeInput value={clip.start} onChange={(v) => updateClip(clip.id, (c) => { const len = c.end - c.start; c.start = v; c.end = v + len; })} />
           <label>End</label><TimeInput value={clip.end} onChange={(v) => updateClip(clip.id, (c) => { c.end = Math.max(c.start + 0.1, v); })} />
-          <label>Fade in / out</label>
+          <label>Fade in</label>
           <div className="row">
-            <input type="number" min={0} step={0.1} value={clip.fadeIn} onChange={(e) => updateClip(clip.id, (c) => { c.fadeIn = Math.max(0, Number(e.target.value)); }, false)} style={{ width: 60 }} />
-            <input type="number" min={0} step={0.1} value={clip.fadeOut} onChange={(e) => updateClip(clip.id, (c) => { c.fadeOut = Math.max(0, Number(e.target.value)); }, false)} style={{ width: 60 }} />
-            <span className="tiny muted">sec</span>
+            <NumberInput value={clip.fadeIn} min={0} max={Math.max(0.1, clip.end - clip.start)} step={0.1} decimals={2} onCommit={(v) => updateClip(clip.id, (c) => { c.fadeIn = v; })} />
+            <span className="tiny muted">seconds</span>
+          </div>
+          <label>Fade out</label>
+          <div className="row">
+            <NumberInput value={clip.fadeOut} min={0} max={Math.max(0.1, clip.end - clip.start)} step={0.1} decimals={2} onCommit={(v) => updateClip(clip.id, (c) => { c.fadeOut = v; })} />
+            <span className="tiny muted">seconds</span>
           </div>
           <label>Opacity</label>
           <input type="range" min={0} max={1} step={0.01} value={clip.opacity} onPointerDown={() => useStore.getState().checkpoint()} onChange={(e) => updateClip(clip.id, (c) => { c.opacity = Number(e.target.value); }, false)} />
@@ -186,9 +219,16 @@ function ClipInspector({ clip }: { clip: Clip }) {
       {def.category === 'text' && (
         <div className="group col">
           <textarea rows={2} value={clip.text || ''} onChange={(e) => updateClip(clip.id, (c) => { c.text = e.target.value; }, false)} onFocus={() => useStore.getState().checkpoint()} />
-          <select value={clip.font || 'Arial Black'} onChange={(e) => updateClip(clip.id, (c) => { c.font = e.target.value; })} style={{ fontFamily: clip.font }}>
-            {TEXT_FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+          <select value={clip.font || 'Archivo Variable'} onChange={(e) => updateClip(clip.id, (c) => { c.font = e.target.value; })} style={{ fontFamily: clip.font }}>
+            {TEXT_FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f === 'Archivo Variable' ? 'Archivo (Skimo titles)' : f}</option>)}
           </select>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <label className="row small"><input type="checkbox" checked={!!clip.upper} onChange={(e) => updateClip(clip.id, (c) => { c.upper = e.target.checked; })} />Capitals</label>
+            <label className="row small"><input type="checkbox" checked={!!clip.wide} onChange={(e) => updateClip(clip.id, (c) => { c.wide = e.target.checked; })} />Wide letters</label>
+          </div>
+          <div className="row"><span className="small muted" style={{ width: 100 }}>Letter spacing</span>
+            <input type="range" min={-0.05} max={0.5} step={0.01} value={clip.letterSpacing ?? 0} onPointerDown={() => useStore.getState().checkpoint()} onChange={(e) => updateClip(clip.id, (c) => { c.letterSpacing = Number(e.target.value); }, false)} />
+          </div>
         </div>
       )}
 
@@ -196,7 +236,7 @@ function ClipInspector({ clip }: { clip: Clip }) {
       {isVideo && (
         <div className="group kv">
           <label>Video starts at</label>
-          <input type="number" min={0} step={0.1} value={clip.mediaOffset || 0} onChange={(e) => updateClip(clip.id, (c) => { c.mediaOffset = Math.max(0, Number(e.target.value)); }, false)} />
+          <NumberInput value={clip.mediaOffset || 0} min={0} step={0.1} decimals={2} onCommit={(v) => updateClip(clip.id, (c) => { c.mediaOffset = v; })} />
         </div>
       )}
 
@@ -324,7 +364,7 @@ function ParamRow({ clip, p, project }: { clip: Clip; p: ParamDef; project: Proj
             else { c.keys[p.key] = [...ks, { t: playback.time, v: value }].sort((a, b) => a.t - b.t); }
             if (!c.keys[p.key].length) delete c.keys[p.key];
           })}>{nearKey ? '◆' : '◇'}</button>
-        <input className="val" value={fmt(value)} onChange={(e) => { const v = Number(e.target.value); if (!isNaN(v)) setValue(Math.max(min, Math.min(max, v)), true); }} />
+        <NumberInput className="val" plain value={Number(fmt(value))} min={min} max={max} onCommit={(v) => setValue(v, true)} />
       </div>
       <input type="range" min={min} max={max} step={step} value={value}
         onPointerDown={() => useStore.getState().checkpoint()}

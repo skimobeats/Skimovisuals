@@ -29,7 +29,13 @@ export interface Clip {
   font?: string;
   paletteId?: string | null; // null = follow project colour track
   mediaOffset?: number;    // in point for video
+  transitionIn?: ClipTransition | null; // transition from the clip just before this one on the same track
+  letterSpacing?: number;  // text: extra space between letters, as a fraction of the font size
+  wide?: boolean;          // text: use the wide cut of the font
+  upper?: boolean;         // text: force capitals
 }
+
+export interface ClipTransition { type: string; duration: number; }
 
 export type BlendMode = 'normal' | 'add' | 'screen' | 'multiply' | 'overlay' | 'difference' | 'lighten' | 'darken';
 
@@ -76,6 +82,14 @@ export interface PaletteCycle {
   fade: number; // beats
 }
 
+export interface ColourReact {
+  hueSource: string;     // '' for off
+  hueAmount: number;     // fraction of a full turn of the colour wheel
+  swapOn: string;        // '' | 'kick' | 'snare' | 'hats' | 'beat' | 'bar' | 'section'
+  brightSource: string;
+  brightAmount: number;
+}
+
 export interface PadEvent { id: string; pad: string; start: number; end: number; }
 
 export interface ProjectSettings {
@@ -107,6 +121,7 @@ export interface Project {
   basePaletteId: string;
   paletteKeys: PaletteKey[];
   paletteCycle: PaletteCycle;
+  colourReact: ColourReact;
   media: MediaItem[];
   tracks: Track[];          // index 0 is the bottom layer
   clips: Clip[];

@@ -7,7 +7,7 @@ import { analyses, buffers, estimateBpm, estimateOffset, laneDefs, setSolo, getS
 import { playback } from '../playback';
 import type { AudioRef, StemRole } from '../types';
 import { suggestMarkers } from '../generate';
-import { fmtTime } from './common';
+import { fmtTime, NumberInput } from './common';
 
 const ROLES: { id: StemRole; label: string }[] = [
   { id: 'drums', label: 'Drums (full kit)' }, { id: 'kick', label: 'Kick only' }, { id: 'snare', label: 'Snare / clap only' }, { id: 'hats', label: 'Hats / percussion' },
@@ -115,7 +115,7 @@ export function AudioPanel() {
       <div className="kv">
         <label>BPM</label>
         <div className="row">
-          <input type="number" step={0.1} min={30} max={300} value={project.bpm} onChange={(e) => update((p) => { p.bpm = Math.max(30, Math.min(300, Number(e.target.value) || 120)); }, false)} onFocus={() => useStore.getState().checkpoint()} />
+          <NumberInput value={project.bpm} min={30} max={300} step={0.1} decimals={2} onCommit={(v) => update((p) => { p.bpm = v; })} />
           <button className="small" onClick={tap} title="Tap along with the beat">Tap</button>
           <button className="small" disabled={!hasAnalysis} onClick={() => { const b = estimateBpm(); if (b) update((p) => { p.bpm = b; }); }} title="Guess the tempo">Detect</button>
         </div>
@@ -125,7 +125,7 @@ export function AudioPanel() {
         </select>
         <label>First beat at</label>
         <div className="row">
-          <input type="number" step={0.001} value={Number(project.beatOffset.toFixed(3))} onChange={(e) => update((p) => { p.beatOffset = Number(e.target.value) || 0; }, false)} onFocus={() => useStore.getState().checkpoint()} />
+          <NumberInput value={project.beatOffset} min={0} step={0.001} decimals={3} onCommit={(v) => update((p) => { p.beatOffset = v; })} />
           <span className="small muted">sec</span>
           <button className="small" onClick={() => update((p) => { p.beatOffset = playback.time; })} title="Use the playhead position">Playhead</button>
         </div>

@@ -1,9 +1,10 @@
 import { GENERATORS } from './layers/generators';
 import { EFFECTS } from './layers/effects';
 import { MEDIA_LAYERS } from './layers/media';
+import { LOGO_LAYER } from './layers/logo';
 import type { LayerDef } from './layers/types';
 
-export const ALL_LAYERS: LayerDef[] = [...MEDIA_LAYERS, ...GENERATORS, ...EFFECTS];
+export const ALL_LAYERS: LayerDef[] = [LOGO_LAYER, ...MEDIA_LAYERS, ...GENERATORS, ...EFFECTS];
 export const LAYERS = new Map(ALL_LAYERS.map((d) => [d.id, d]));
 
 export function getDef(id: string): LayerDef {

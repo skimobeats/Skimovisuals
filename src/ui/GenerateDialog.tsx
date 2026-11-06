@@ -8,7 +8,7 @@ let lastOpts: GenerateOptions | null = null;
 
 export function GenerateDialog({ onClose }: { onClose: () => void }) {
   const project = useStore((s) => s.project)!;
-  const [opts, setOpts] = useState<GenerateOptions>(lastOpts || { style: 'pastel', colours: 'pastel', intensity: 0.6, useMedia: true, title: '', seed: Math.floor(Math.random() * 100000) });
+  const [opts, setOpts] = useState<GenerateOptions>(lastOpts || { style: 'skimo', colours: 'skimo', intensity: 0.65, useMedia: true, logo: true, title: '', seed: Math.floor(Math.random() * 100000) });
   const set = (p: Partial<GenerateOptions>) => setOpts((o) => ({ ...o, ...p }));
   const ready = analyses.has('mix');
   const sections = ready ? findSections(project) : [];
@@ -45,14 +45,16 @@ export function GenerateDialog({ onClose }: { onClose: () => void }) {
           <div className="kv" style={{ gridTemplateColumns: '120px 1fr' }}>
             <label>Colours</label>
             <div className="row">
-              {(['pastel', 'style', 'any'] as const).map((c) => <button key={c} className={opts.colours === c ? 'active' : ''} onClick={() => set({ colours: c })}>{c === 'pastel' ? 'Pastels' : c === 'style' ? 'Suit the style' : 'Anything'}</button>)}
+              {(['skimo', 'pastel', 'style', 'any'] as const).map((c) => <button key={c} className={opts.colours === c ? 'active' : ''} onClick={() => set({ colours: c })}>{c === 'skimo' ? 'Skimo' : c === 'pastel' ? 'Pastels' : c === 'style' ? 'Suit the style' : 'Anything'}</button>)}
             </div>
             <label>Energy</label>
             <div className="row"><span className="tiny muted">Calm</span><input type="range" min={0} max={1} step={0.01} value={opts.intensity} onChange={(e) => set({ intensity: Number(e.target.value) })} /><span className="tiny muted">Wild</span></div>
+            <label>Skimo logo</label>
+            <label className="row"><input type="checkbox" checked={opts.logo} onChange={(e) => set({ logo: e.target.checked })} /><span className="small">On top most of the time, reacting to the music</span></label>
             <label>Use my images</label>
             <label className="row"><input type="checkbox" checked={opts.useMedia && project.media.length > 0} disabled={!project.media.length} onChange={(e) => set({ useMedia: e.target.checked })} /><span className="small">{project.media.length ? `${project.media.length} in your media` : 'Add some in the Media tab first'}</span></label>
             <label>Title text</label>
-            <input value={opts.title} placeholder="Optional, e.g. SKIMO · Track name" onChange={(e) => set({ title: e.target.value })} />
+            <input value={opts.title} placeholder="Optional, e.g. SKIMO:CONNECTING MEMORY" onChange={(e) => set({ title: e.target.value })} />
           </div>
           {project.clips.length > 0 && <div className="hint">This replaces what is on the timeline. You can always undo with Ctrl+Z.</div>}
         </div>
