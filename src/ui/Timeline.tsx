@@ -448,12 +448,14 @@ export function Timeline() {
     let type = data.type;
     if (data.preset) { const pr = await presetById(data.preset); if (!pr) return; extra = structuredClone(pr.clip); type = pr.clip.type; }
     if (data.mediaIds) extra.mediaIds = data.mediaIds;
+    if (data.heroShape !== undefined) { extra.name = data.name; extra.blend = 'normal'; }
     if (data.text) { extra.text = data.text; extra.font = data.font; extra.name = String(data.text).split('\n')[0].slice(0, 30); }
     if (data.mediaIds?.length === 1) extra.name = p.media.find((m) => m.id === data.mediaIds[0])?.name;
     let id = '';
     st.update((pp) => {
       if (!trackId) trackId = addTrack(pp).id;
       const c = makeClip(type, trackId, t, Math.max(t + 0.5, end), extra);
+      if (data.heroShape !== undefined) c.params.shape = data.heroShape;
       pp.clips.push(c); id = c.id;
     });
     st.select({ kind: 'clip', ids: [id] });

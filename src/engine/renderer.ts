@@ -1,6 +1,7 @@
 import type { Clip, MediaItem, Project } from '../types';
 import { VERT, HEADER, COPY_FRAG, BLEND_FRAG, BLEND_MODES, TRANSITION_FRAG } from './glsl';
 import { TRANSITION_MAP } from './transitions';
+import { HeroRenderer } from './hero';
 import logoMaskUrl from '../assets/skimo-logo-mask.png';
 import { getDef, PADS, PAD_MAP } from './registry';
 import type { LayerDef } from './layers/types';
@@ -10,7 +11,7 @@ import { platform } from '../platform';
 import { SEQ_CHANGE } from './layers/media';
 
 interface Program { prog: WebGLProgram; uniforms: Map<string, WebGLUniformLocation | null>; }
-interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number; }
+interface Target { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number; rb?: WebGLRenderbuffer; }
 
 interface MediaTex { tex: WebGLTexture; w: number; h: number; ready: boolean; el?: HTMLImageElement | HTMLVideoElement; kind: 'image' | 'video'; lastUpload: number; }
 
@@ -22,6 +23,7 @@ export class Renderer {
   private copyProg: Program;
   private blendProg: Program;
   private transProg: Program;
+  private hero: HeroRenderer;
   private accA!: Target; private accB!: Target; private layer!: Target; private out8?: Target;
   private tmpA!: Target; private tmpB!: Target;
   private logo: { tex: WebGLTexture; ready: boolean; img: HTMLImageElement };
@@ -48,6 +50,8 @@ export class Renderer {
     this.copyProg = this.compile('__copy', COPY_FRAG);
     this.blendProg = this.compile('__blend', BLEND_FRAG);
     this.transProg = this.compile('__transition', TRANSITION_FRAG);
+    this.hero = new HeroRenderer(gl, this.quad);
+    this.errors.push(...this.hero.errors);
     this.black = this.makeTex(1, 1, new Uint8Array([0, 0, 0, 0]));
     // the Skimo logo masks
     const img = new Image();
@@ -77,17 +81,24 @@ export class Renderer {
     return tex;
   }
 
-  private makeTarget(w: number, h: number, hdr = this.hdr): Target {
+  private makeTarget(w: number, h: number, hdr = this.hdr, depth = false): Target {
     const gl = this.gl;
     const tex = this.makeTex(w, h, null, hdr);
     const fb = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    let rb: WebGLRenderbuffer | undefined;
+    if (depth) {
+      rb = gl.createRenderbuffer()!;
+      gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+    }
     gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
-    return { fb, tex, w, h };
+    return { fb, tex, w, h, rb };
   }
 
-  private freeTarget(t?: Target) { if (!t) return; this.gl.deleteFramebuffer(t.fb); this.gl.deleteTexture(t.tex); }
+  private freeTarget(t?: Target) { if (!t) return; this.gl.deleteFramebuffer(t.fb); this.gl.deleteTexture(t.tex); if (t.rb) this.gl.deleteRenderbuffer(t.rb); }
 
   private compile(id: string, frag: string): Program {
     const gl = this.gl;
@@ -122,7 +133,7 @@ export class Renderer {
   }
 
   /** Compile every shader up front so the first play is smooth. Returns any errors. */
-  warmUp(defs: LayerDef[]) { for (const d of defs) this.program(d); return this.errors; }
+  warmUp(defs: LayerDef[]) { for (const d of defs) if (d.category !== 'hero') this.program(d); return this.errors; }
 
   private loc(p: Program, name: string) {
     if (!p.uniforms.has(name)) p.uniforms.set(name, this.gl.getUniformLocation(p.prog, name));
@@ -155,8 +166,8 @@ export class Renderer {
     this.freeTarget(this.accA); this.freeTarget(this.accB); this.freeTarget(this.layer); this.freeTarget(this.out8);
     this.freeTarget(this.tmpA); this.freeTarget(this.tmpB);
     this.out8 = undefined;
-    this.accA = this.makeTarget(w, h); this.accB = this.makeTarget(w, h); this.layer = this.makeTarget(w, h);
-    this.tmpA = this.makeTarget(w, h); this.tmpB = this.makeTarget(w, h);
+    this.accA = this.makeTarget(w, h); this.accB = this.makeTarget(w, h); this.layer = this.makeTarget(w, h, this.hdr, true);
+    this.tmpA = this.makeTarget(w, h, this.hdr, true); this.tmpB = this.makeTarget(w, h, this.hdr, true);
     for (const f of this.feedback.values()) { this.freeTarget(f.a); this.freeTarget(f.b); }
     this.feedback.clear();
   }
@@ -376,6 +387,10 @@ export class Renderer {
   /** Draw one layer into a texture. Effects and the logo read the image built up so far. */
   private renderLayer(project: Project, clip: Clip, t: number, w: number, h: number, into: Target): WebGLTexture {
     const def = getDef(clip.type);
+    if (def.category === 'hero') {
+      this.hero.render(project, clip, def, t, w, h, into.fb, paletteAt(project, t, clip.paletteId), this.logo.tex);
+      return into.tex;
+    }
     const p = this.program(def);
     const gl = this.gl;
     const pal = paletteAt(project, t, clip.paletteId);

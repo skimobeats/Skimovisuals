@@ -18,14 +18,15 @@ A new installer is built automatically every time the code changes. If you ever 
 3. **Sections**: press **M** to drop a marker (intro, build, drop and so on), or press **Suggest sections**.
 4. **✨ Generate for me**: pick a style, colours and energy and it builds a full set of layers that follow your track. Press **🎲 Try another** for a different take. Everything it makes can be edited.
 5. **Skimo tab**: add your stencil logo for the whole song. Everything below shows through the letters, each letter reacts to its own part of the track (S kick, K snare, I hats, M bass, O melody) and the shape glitches, skews, stretches, slips and breathes. Pick a logo style (Reactive, Clean, Print, Chaos, Melt) and add a "SKIMO:TRACK NAME" title.
-6. **Build it yourself**: drag visuals, effects, images and text onto the timeline. Higher tracks sit on top of lower ones, and effects change everything on the tracks below them.
-7. **Transitions tab**: drag a transition (crossfade, Skimo wipe, glitch cut, zoom and more) onto the join between two clips that touch on the same track. Drag the round handles on a clip's top corners to set its fades.
-8. **Make things react**: click a layer, then the 🔗 button beside any setting and pick Kick, Snare, Bass, Beat and more. Amount sets how strongly it reacts and Release sets how quickly it settles.
-9. **Animate**: the ◇ button beside a setting adds a keyframe at the playhead, so values can change over the song.
-10. **Colour tab**: choose a Skimo palette (or pastels and more), take colours from an image, make your own, add colour changes at points in the song or let it cycle palettes on the beat. Under "Colours react to the music" you can swap colours on hits, shift hue with the bass and brighten on the kick.
-11. **🎛 Perform**: hold keys Q to H for live effects like strobe, kaleidoscope and glitch. Turn on **Record**, press play, and your pad hits and slider moves are saved to the timeline to edit afterwards.
-12. **Presets tab**: save a single layer or a whole look and reuse it on your next release.
-13. **Export video**: MP4 (H.264 with AAC audio). Your NVIDIA card's encoder is used automatically when available. Try **15 sec test** first to check how it looks.
+6. **3D hero shapes** (Visuals tab): Orb, Crystal, Monolith, Ring, Shard cloud, Liquid blob and a 3D Logo slab. Shards push out on the kick, scatter on the snare, spike on the hats, ripple with the melody, breathe with the bass and can burst apart on drops, throwing debris on big kicks. Put them under the Skimo logo.
+7. **Build it yourself**: drag visuals, effects, images and text onto the timeline. Higher tracks sit on top of lower ones, and effects change everything on the tracks below them.
+8. **Transitions tab**: drag a transition (crossfade, Skimo wipe, glitch cut, zoom and more) onto the join between two clips that touch on the same track. Drag the round handles on a clip's top corners to set its fades.
+9. **Make things react**: click a layer, then the 🔗 button beside any setting and pick Kick, Snare, Bass, Beat and more. Amount sets how strongly it reacts and Release sets how quickly it settles.
+10. **Animate**: the ◇ button beside a setting adds a keyframe at the playhead, so values can change over the song.
+11. **Colour tab**: choose a Skimo palette (or pastels and more), take colours from an image, make your own, add colour changes at points in the song or let it cycle palettes on the beat. Under "Colours react to the music" you can swap colours on hits, shift hue with the bass and brighten on the kick.
+12. **🎛 Perform**: hold keys Q to H for live effects like strobe, kaleidoscope and glitch. Turn on **Record**, press play, and your pad hits and slider moves are saved to the timeline to edit afterwards.
+13. **Presets tab**: save a single layer or a whole look and reuse it on your next release.
+14. **Export video**: MP4 (H.264 with AAC audio). Your NVIDIA card's encoder is used automatically when available. Try **15 sec test** first to check how it looks.
 
 Projects save as `.skimo` files. The app also autosaves every minute; use **Recover last autosave** on the start screen if anything goes wrong.
 

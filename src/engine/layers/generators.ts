@@ -350,9 +350,12 @@ vec4 layer(){
     float glow = exp(-d * d * 2.2);
     vec3 tint = u_pal[int(mod(fi, 3.0))];
     tint = mix(tint, pal(fi * 0.33 * p_spread + 0.1), 0.35);
-    col += tint * glow * (0.85 + p_flare * 0.8) * (1.0 - p_depth * 0.35);
+    // keep light colours rich rather than letting them wash towards white
+    float lum = dot(tint, vec3(0.299, 0.587, 0.114));
+    tint *= mix(1.0, 0.55, smoothstep(0.55, 0.95, lum));
+    col += tint * glow * (0.7 + p_flare * 0.7) * (1.0 - p_depth * 0.45);
   }
-  float vig = smoothstep(1.3, 0.2, length(p));
+  float vig = smoothstep(1.1, 0.15, length(p));
   col *= mix(1.0, vig, p_depth);
   col += (hash21(v_uv * u_res + fract(u_t * 7.0) * 91.0) - 0.5) * p_grain;
   col = hueShift(max(col, 0.0), p_hue) * p_brightness;

@@ -87,4 +87,4 @@ export function redetectLanes(force = false, only?: string) {
   }, true);
 }
 
-export const CATEGORY_COLOUR: Record<string, string> = { generator: 'var(--gen)', media: 'var(--media)', text: 'var(--text-c)', effect: 'var(--fx)', logo: '#1fb5c8' };
+export const CATEGORY_COLOUR: Record<string, string> = { generator: 'var(--gen)', media: 'var(--media)', text: 'var(--text-c)', effect: 'var(--fx)', logo: '#1fb5c8', hero: '#e8873a' };

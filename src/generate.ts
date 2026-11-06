@@ -20,12 +20,13 @@ interface Style {
   id: string; name: string; description: string;
   backgrounds: string[]; overlays: string[]; always: string[]; peak: string[]; finish: string[];
   palettes: string[]; mediaTransitions: number[]; mediaLook: Partial<Record<string, number>>;
+  hero?: boolean;
 }
 
 export const STYLES: Style[] = [
   { id: 'skimo', name: 'Skimo', description: 'Your logo front and centre over dark, glowing, reactive visuals. The signature look.',
-    backgrounds: ['gradient', 'fractal', 'tunnel', 'particles', 'contours'], overlays: ['particles', 'lasers', 'shapes'], always: ['bloom', 'film'], peak: ['shake', 'rgbsplit', 'kaleido'], finish: [],
-    palettes: SKIMO_IDS, mediaTransitions: [1, 2, 3], mediaLook: { paletteMap: 0.3 } },
+    backgrounds: ['gradient', 'gradient', 'gradient', 'contours'], overlays: ['particles'], always: ['film'], peak: ['shake', 'rgbsplit'], finish: [],
+    palettes: SKIMO_IDS, mediaTransitions: [1, 2, 3], mediaLook: { paletteMap: 0.3 }, hero: true },
   { id: 'pastel', name: 'Pastel Dream', description: 'Soft, floaty and warm. Ideal for lofi and chilled tracks.',
     backgrounds: ['gradient', 'liquid', 'contours'], overlays: ['particles', 'dots', 'shapes'], always: ['film'], peak: ['feedback', 'warp'], finish: ['bloom'],
     palettes: PASTEL_IDS, mediaTransitions: [1, 0, 3], mediaLook: { warp: 0.15, paletteMap: 0.25 } },
@@ -163,8 +164,8 @@ export function generate(project: Project, opts: GenerateOptions) {
 
   // fresh tracks
   const T = (name: string) => ({ id: uid(), name, hidden: false, locked: false });
-  const tBg = T('Background'), tMedia = T('Images'), tOver = T('Overlay'), tText = T('Text'), tFx1 = T('Effects'), tFx2 = T('Drop effects'), tFin = T('Finish'), tLogo = T('Logo');
-  project.tracks = [tBg, tMedia, tOver, tFx1, tFx2, tFin, tLogo, tText];
+  const tBg = T('Background'), tMedia = T('Images'), tHero = T('3D hero'), tOver = T('Overlay'), tText = T('Text'), tFx1 = T('Effects'), tFx2 = T('Drop effects'), tFin = T('Finish'), tLogo = T('Logo');
+  project.tracks = [tBg, tMedia, tHero, tOver, tFx1, tFx2, tFin, tLogo, tText];
   project.clips = [];
   const media = opts.useMedia ? project.media.map((m) => m.id) : [];
   const dur = project.duration;
@@ -182,6 +183,7 @@ export function generate(project: Project, opts: GenerateOptions) {
     const bg = makeClip(bgType, tBg.id, s.start, s.end, { blend: 'normal' });
     jitter(bg, r, 0.3);
     scaleMods(bg, k * (0.6 + e * 0.6));
+    if (style.hero && bg.type !== 'gradient') { bg.opacity = 0.4; bg.params.brightness = 0.7; }
     if (bg.params.speed !== undefined) bg.params.speed = 0.5 + e * 0.9 * (0.6 + intensity * 0.6);
     project.clips.push(bg);
 
@@ -205,8 +207,24 @@ export function generate(project: Project, opts: GenerateOptions) {
       project.clips.push(mc);
     }
 
+    // a 3D hero shape behind the logo, changing with each section
+    if (style.hero) {
+      const shape = e > 0.65 ? pick([0, 0, 1, 4]) : e < 0.35 ? pick([3, 5, 0]) : pick([2, 4, 1, 0]);
+      const hc = makeClip('hero', tHero.id, s.start, s.end, { name: ['Orb', 'Crystal', 'Monolith', 'Ring', 'Shard cloud', 'Liquid blob', 'Logo slab'][shape], blend: 'normal' });
+      hc.params.shape = shape;
+      hc.params.variation = Math.floor(r() * 40);
+      hc.params.detail = e > 0.65 ? pick([1, 2]) : pick([0, 1]);
+      hc.params.spin = (r() < 0.5 ? -1 : 1) * (0.15 + e * 0.35);
+      hc.params.material = e < 0.35 && r() < 0.3 ? 2 : r() < 0.15 ? 3 : 1;
+      hc.params.reach = 0.6 + e * 0.8 + intensity * 0.3;
+      if (e > 0.65) hc.mods.burst = mod('section', 0.7, 1.0);
+      if (e > 0.35 && e <= 0.65) hc.mods.reach = mod('sectionramp', 0.35, 0.3);
+      for (const m of Object.values(hc.mods)) if (m.source !== 'section' && m.source !== 'sectionramp') m.amount *= 0.7 + intensity * 0.5;
+      project.clips.push(hc);
+    }
+
     // overlay for busier sections
-    if (e > 0.4 || intensity > 0.75) {
+    if (!style.hero && (e > 0.4 || intensity > 0.75) || style.hero && e > 0.7 && r() < 0.5) {
       const ov = makeClip(pick(style.overlays.length ? style.overlays : ALL_GEN), tOver.id, s.start, s.end, { blend: 'screen' });
       jitter(ov, r, 0.3);
       scaleMods(ov, k);
@@ -285,7 +303,7 @@ export function generate(project: Project, opts: GenerateOptions) {
   }
 
   // join neighbouring clips on the same track with transitions rather than hard cuts
-  for (const track of [tBg.id, tMedia.id, tOver.id]) {
+  for (const track of [tBg.id, tMedia.id, tHero.id, tOver.id]) {
     const onTrack = project.clips.filter((c) => c.trackId === track).sort((a, b) => a.start - b.start);
     for (let i = 1; i < onTrack.length; i++) {
       const c = onTrack[i];

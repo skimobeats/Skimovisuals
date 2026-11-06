@@ -137,6 +137,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .clip .handle:hover { background: rgba(255,255,255,0.3); }
 .clip .fade { position: absolute; top: 0; bottom: 0; pointer-events: none; }
 .clip.logo { background: #1fb5c8; color: #08262b; }
+.clip.hero { background: #c96a28; }
 .clip .fadehandle { position: absolute; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid rgba(0,0,0,0.5); cursor: ew-resize; display: none; z-index: 2; }
 .clip:hover .fadehandle, .clip.sel .fadehandle { display: block; }
 .clip .cname, .clip .csub { position: relative; z-index: 1; }

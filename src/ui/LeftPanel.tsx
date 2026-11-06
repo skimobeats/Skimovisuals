@@ -9,6 +9,7 @@ import { ColourPanel } from './ColourPanel';
 import { PresetsPanel } from './PresetsPanel';
 import { TEXT_FONTS } from '../engine/layers/media';
 import { TRANSITIONS } from '../engine/transitions';
+import { HERO_SHAPES } from '../engine/hero';
 import { selectedClips } from '../store';
 import logoUrl from '../assets/skimo-logo.png';
 import type { Clip } from '../types';
@@ -59,12 +60,28 @@ function LayerLibrary({ category, title, hint }: { category: string; title: stri
   const basePal = useStore((s) => s.project!.basePaletteId);
   const thumbs = useMemo(() => layerThumbnails(basePal), [basePal]);
   const [q, setQ] = useState('');
-  const defs = ALL_LAYERS.filter((d) => d.category === category && (!q || (d.name + d.description).toLowerCase().includes(q.toLowerCase())));
+  const defs = ALL_LAYERS.filter((d) => d.category === category && d.id !== 'hero' && (!q || (d.name + d.description).toLowerCase().includes(q.toLowerCase())));
   return (
     <>
       <h3>{title}</h3>
       <div className="muted small" style={{ marginBottom: 8 }}>{hint}</div>
       <input placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
+      {category === 'generator' && !q && (
+        <>
+          <h4 style={{ marginTop: 0 }}>3D hero shapes</h4>
+          <div className="muted tiny" style={{ marginBottom: 6 }}>Shards push out with the kick, snare and hats, breathe with the bass and burst apart on drops. Put them under the Skimo logo.</div>
+          <div className="cards" style={{ marginBottom: 12 }}>
+            {HERO_SHAPES.map((name, i) => (
+              <div key={name} className="card" draggable onDragStart={(e) => setDragData(e, { type: 'hero', heroShape: i, name })} onDoubleClick={() => addHero(i, name)}>
+                {thumbs.get('hero:' + i) ? <img className="thumb" src={thumbs.get('hero:' + i)} /> : <div className="thumb" />}
+                <div className="title">{name}</div>
+                <button className="add primary small" onClick={() => addHero(i, name)} title="Add at playhead">+</button>
+              </div>
+            ))}
+          </div>
+          <h4>2D visuals</h4>
+        </>
+      )}
       <div className="cards">
         {defs.map((d) => (
           <div key={d.id} className="card" draggable onDragStart={(e) => setDragData(e, { type: d.id })} title={d.description} onDoubleClick={() => addLayer(d.id)}>
@@ -141,6 +158,11 @@ const LOGO_LOOKS: { name: string; desc: string; params: Record<string, number>; 
   { name: 'Melt', desc: 'Slow and woozy for breakdowns. The shape drips and wobbles with the bass.', params: { melt: 0.25, morphShape: 3 },
     mods: { morph: mod('bass', 0.5, 0.4), breathe: mod('bass', 0.8, 0.4), melt: mod('mids', 0.3, 0.4), m: mod('bass', 0.8, 0.3), o: mod('mids', 0.8, 0.3) } }
 ];
+
+function addHero(shape: number, name: string) {
+  const id = addLayer('hero', { name });
+  useStore.getState().update((p) => { const c = p.clips.find((x) => x.id === id); if (c) { c.params.shape = shape; c.blend = 'normal'; } }, false);
+}
 
 function SkimoPanel() {
   const project = useStore((s) => s.project)!;

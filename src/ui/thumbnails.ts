@@ -2,6 +2,7 @@
 import { Renderer } from '../engine/renderer';
 import { newProject, makeClip } from '../store';
 import { ALL_LAYERS } from '../engine/registry';
+import { HERO_SHAPES } from '../engine/hero';
 
 const cache = new Map<string, string>();
 let cachedPalette = '';
@@ -18,8 +19,19 @@ export function layerThumbnails(paletteId: string): Map<string, string> {
     p.duration = 100;
     const track = p.tracks[0].id;
     const under = makeClip('shapes', track, 0, 100);
+    // the 3D hero shapes, one picture per shape
+    for (let shape = 0; shape < HERO_SHAPES.length; shape++) {
+      const c = makeClip('hero', p.tracks[1].id, 0, 100);
+      c.params.shape = shape;
+      c.mods = {};
+      p.clips = [c];
+      r.resetState();
+      r.renderFrame(p, 3, 192, 108);
+      r.present();
+      cache.set('hero:' + shape, canvas.toDataURL('image/jpeg', 0.8));
+    }
     for (const def of ALL_LAYERS) {
-      if (def.category === 'media') continue;
+      if (def.category === 'media' || def.category === 'hero') continue;
       const c = makeClip(def.id, p.tracks[1].id, 0, 100, def.category === 'text' ? { text: 'Aa' } : {});
       c.mods = {};
       if (def.id === 'flash') c.params.amount = 0.5;
