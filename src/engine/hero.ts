@@ -5,14 +5,28 @@ import { f, sel, col, bool, mod } from './layers/types';
 import { evalNumber, colourValue, Rgb, clipSpin } from './params';
 import { eventCount, lastHitIndex } from '../audio/sources';
 import { depthAt, nearnessAt, SceneData } from '../scene/scene';
+import bustUrl from '../assets/bust.bin?url';
 
-export const HERO_SHAPES = ['Orb', 'Crystal', 'Monolith', 'Ring', 'Shard cloud', 'Liquid blob', 'Logo slab'];
+export const HERO_SHAPES = ['Orb', 'Crystal', 'Monolith', 'Ring', 'Shard cloud', 'Liquid blob', 'Logo slab', 'Scanned bust'];
+export const BUST_SHAPE = 7;
 
 export const HERO_LAYER: LayerDef = {
   id: 'hero', name: '3D Hero', category: 'hero', tags: ['3d', 'hero'],
   description: 'A 3D object made of shards that push out to the kick, snare and hats, breathes with the bass and bursts apart on drops.',
   params: [
     sel('shape', 'Shape', HERO_SHAPES, 0, { group: 'Shape' }),
+    sel('bustStyle', 'Look', ['Wireframe', 'Points', 'Wireframe and points', 'Solid scan'], 0, { group: 'Bust' }),
+    f('facing', 'Facing', -1, 1, -0.2, { group: 'Bust' }),
+    f('lineGlow', 'Line brightness', 0, 3, 1.2, { group: 'Bust' }),
+    f('seeThrough', 'See through to the back', 0, 1, 0.12, { group: 'Bust' }),
+    f('scanLine', 'Scan line sweep', 0, 1, 0.45, { group: 'Bust' }),
+    f('pointSize', 'Point size', 0.5, 6, 2, { group: 'Bust' }),
+    f('look', 'Looking around', 0, 1, 0.75, { group: 'Bust' }),
+    f('lookSpeed', 'Look speed', 0.1, 3, 1, { group: 'Bust' }),
+    f('jerk', 'Glitch jerk', 0, 1, 0, { group: 'Bust' }),
+    f('stretch', 'Stretch and smear', 0, 1, 0, { group: 'Bust' }),
+    f('ghosts', 'Shaking ghosts', 0, 1, 0, { group: 'Bust' }),
+    f('bulge', 'Moving under the skin', 0, 1, 0, { group: 'Bust' }),
     sel('sceneMode', 'In the scene', ['Sit on the ground', 'Float'], 0, { group: 'Scene' }),
     f('sceneX', 'Across', 0, 1, 0.5, { group: 'Scene' }),
     f('sceneY', 'Down', 0, 1, 0.75, { group: 'Scene' }),
@@ -54,7 +68,8 @@ export const HERO_LAYER: LayerDef = {
   ],
   defaultMods: {
     kick: mod('kick', 0.95, 0.22), snare: mod('snare', 0.85, 0.2), hats: mod('hats', 0.8, 0.09),
-    ripple: mod('mids', 0.6, 0.3), breathe: mod('bass', 0.6, 0.3), core: mod('kick', 0.35, 0.2)
+    ripple: mod('mids', 0.6, 0.3), breathe: mod('bass', 0.6, 0.3), core: mod('kick', 0.35, 0.2),
+    jerk: mod('snare', 0.85, 0.22), ghosts: mod('snare', 0.5, 0.15), stretch: mod('drop', 0.9, 1.4), bulge: mod('bass', 0.45, 0.3)
   },
   glsl: ''
 };
@@ -385,6 +400,81 @@ void main(){
 
 export interface SceneInput { photo: WebGLTexture; photoW: number; photoH: number; depthTex: WebGLTexture; data: SceneData; }
 
+// The scanned bust: wireframe, points or a solid scan, with the head looking around and glitching
+const BUST_VS = `#version 300 es
+in vec3 a_pos; in vec3 a_nrm; in float a_rnd; in float a_dens;
+uniform mat4 u_proj; uniform mat4 u_view; uniform mat4 u_model;
+uniform vec3 u_look; uniform vec3 u_stretchDir; uniform float u_stretch; uniform float u_bulge; uniform float u_spikes;
+uniform float u_breathe; uniform float u_burst; uniform float u_time; uniform float u_pointSize; uniform vec3 u_offset; uniform float u_echo;
+out vec3 v_wpos; out vec3 v_mpos; out float v_rnd; out vec3 v_nrm; out float v_spike; out float v_viewZ; out float v_dens;
+mat3 rotYXZ(vec3 a){
+  float cy = cos(a.x), sy = sin(a.x), cx = cos(a.y), sx = sin(a.y), cz = cos(a.z), sz = sin(a.z);
+  mat3 ry = mat3(cy, 0.0, -sy, 0.0, 1.0, 0.0, sy, 0.0, cy);
+  mat3 rx = mat3(1.0, 0.0, 0.0, 0.0, cx, sx, 0.0, -sx, cx);
+  mat3 rz = mat3(cz, sz, 0.0, -sz, cz, 0.0, 0.0, 0.0, 1.0);
+  return ry * rx * rz;
+}
+void main(){
+  vec3 p = a_pos; vec3 n = a_nrm;
+  float head = smoothstep(-0.58, -0.22, p.y);
+  vec3 pivot = vec3(0.0, -0.42, -0.08);
+  // breathing lifts the shoulders and chest a little
+  p += vec3(p.x * 0.025, 0.02, p.z * 0.03) * u_breathe * (1.0 - head);
+  // the head turns on the neck, blending into the shoulders
+  mat3 R = rotYXZ(u_look * head);
+  p = pivot + R * (p - pivot); n = R * n;
+  // something moving under the skin
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    vec3 c = vec3(sin(u_time * 0.7 + fi * 2.1) * 0.35, -0.1 + sin(u_time * 0.5 + fi * 1.3) * 0.45, 0.2 + cos(u_time * 0.6 + fi * 1.7) * 0.3);
+    float w = exp(-dot(p - c, p - c) * 16.0);
+    p += n * w * u_bulge * 0.16;
+  }
+  // spikes bursting through on the hats
+  float sp = step(0.93, fract(a_rnd * 7.13 + floor(u_time * 8.0) * 0.37)) * u_spikes;
+  p += n * sp * 0.14 * (0.4 + a_rnd);
+  // stretching and smearing, as if trying to escape its skin
+  float proj = dot(p - pivot, u_stretchDir);
+  p += u_stretchDir * u_stretch * (0.8 * max(proj, 0.0) + 0.3 * a_rnd) * (0.3 + head * 0.7) * (1.0 + u_echo);
+  // tearing apart on big moments
+  p += n * u_burst * (0.15 + a_rnd * 0.7);
+  p += u_offset;
+  vec4 w = u_model * vec4(p, 1.0);
+  vec4 v = u_view * w;
+  v_wpos = w.xyz; v_mpos = p; v_rnd = a_rnd; v_nrm = mat3(u_model) * n; v_spike = sp; v_viewZ = -v.z; v_dens = a_dens;
+  gl_Position = u_proj * v;
+  gl_PointSize = u_pointSize * (4.4 / max(0.5, -v.z));
+}`;
+
+const BUST_FS = `#version 300 es
+precision highp float;
+in vec3 v_wpos; in vec3 v_mpos; in float v_rnd; in vec3 v_nrm; in float v_spike; in float v_viewZ; in float v_dens;
+out vec4 fragColor;
+uniform vec3 u_line; uniform vec3 u_glow; uniform float u_bright; uniform float u_alpha; uniform float u_scan; uniform float u_scanPos;
+uniform float u_pulse; uniform float u_pulsePos; uniform float u_mode; uniform vec3 u_cam; uniform float u_isPoint;
+void main(){
+  if (u_isPoint > 0.5) { vec2 q = gl_PointCoord - 0.5; if (dot(q, q) > 0.25) discard; }
+  // nearer lines are brighter, like a depth scan
+  float depthFade = clamp(1.6 - (v_viewZ - 3.4) * 0.9, 0.25, 1.2);
+  float scan = exp(-abs(v_mpos.y - u_scanPos) * 22.0) * u_scan * 2.5;
+  float pulse = exp(-abs(v_mpos.y - u_pulsePos) * 7.0) * u_pulse * 1.8;
+  vec3 c;
+  if (u_mode > 0.5) {
+    // solid scan: soft clay shading lit by the two lights
+    vec3 n = normalize(v_nrm);
+    vec3 V = normalize(u_cam - v_wpos);
+    if (dot(n, V) < 0.0) n = -n;
+    float d1 = max(dot(n, normalize(vec3(-0.7, 0.6, 0.6))), 0.0), d2 = max(dot(n, normalize(vec3(0.8, -0.1, 0.5))), 0.0);
+    float fres = pow(1.0 - max(dot(n, V), 0.0), 2.5);
+    c = vec3(0.12) + u_glow * d1 * 0.7 + u_line * d2 * 0.6 + u_line * fres * 0.8;
+    c += (u_glow * scan + u_glow * pulse) * 0.6;
+    fragColor = vec4(c * u_bright, 1.0);
+    return;
+  }
+  c = u_line * (0.55 + v_rnd * 0.25) * depthFade * mix(0.25, 1.0, v_dens) + u_glow * (scan + pulse + v_spike * 0.8) * mix(0.4, 1.0, v_dens);
+  fragColor = vec4(c * u_bright * u_alpha, 1.0);
+}`;
+
 // ---------- matrices ----------
 function perspective(fovy: number, aspect: number, near: number, far: number) {
   const f_ = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
@@ -412,10 +502,13 @@ export class HeroRenderer {
   private debris: Built;
   private vao: WebGLVertexArrayObject;
   private scenePass: Prog;
+  private bustProg: Prog;
+  private bust: { vao: WebGLVertexArrayObject; tris: WebGLBuffer; edges: WebGLBuffer; nTris: number; nEdges: number; nVerts: number } | null = null;
+  bustReady: Promise<void>;
   private own: { fb: WebGLFramebuffer; tex: WebGLTexture; rb: WebGLRenderbuffer; w: number; h: number } | null = null;
   errors: string[] = [];
 
-  constructor(gl: WebGL2RenderingContext, quad: WebGLBuffer) {
+  constructor(gl: WebGL2RenderingContext, quad: WebGLBuffer, onReady?: () => void) {
     this.gl = gl;
     this.quad = quad;
     this.prog = this.compile(VS, FS, ['a_pos', 'a_center', 'a_dir', 'a_rand', 'a_bary', 'a_uv', 'a_front']);
@@ -423,6 +516,8 @@ export class HeroRenderer {
     this.scenePass = this.compile(STAGE_VS, SCENE_FS, ['a_pos']);
     this.vao = gl.createVertexArray()!;
     this.debris = this.upload(buildDebris());
+    this.bustProg = this.compile(BUST_VS, BUST_FS, ['a_pos', 'a_nrm', 'a_rnd', 'a_dens']);
+    this.bustReady = fetch(bustUrl).then((r) => r.arrayBuffer()).then((buf) => { this.loadBust(buf); onReady?.(); }).catch((e) => { this.errors.push('bust: ' + e); });
   }
 
   private compile(vs: string, fs: string, attrs: string[]): Prog {
@@ -495,7 +590,7 @@ export class HeroRenderer {
     const thickness = num('thickness'), variation = Math.round(num('variation'));
     const key = `${shape}|${detail}|${thickness.toFixed(2)}|${variation}`;
     let built = this.shapes.get(key);
-    if (!built) {
+    if (!built && shape !== BUST_SHAPE) {
       built = this.upload(buildShape(shape, detail, thickness, variation));
       this.shapes.set(key, built);
       if (this.shapes.size > 24) { const first = this.shapes.keys().next().value!; gl.deleteBuffer(this.shapes.get(first)!.buf); this.shapes.delete(first); }
@@ -539,6 +634,7 @@ export class HeroRenderer {
     }
     let model = mul(translate(px, py, 0), mul(rotZ(roll), mul(rotX(tilt), mul(rotY(spin), scaleM(sizeFit)))));
     if (shape === 6) model = mul(translate(px, py, 0), mul(rotX(tilt * 0.15), mul(rotY(Math.sin(spin) * 0.35), scaleM(size * fit * 1.3))));
+    if (shape === BUST_SHAPE) model = mul(translate(px, py, 0), mul(rotX(num('tilt') * 0.15), mul(rotY(num('facing') * 1.4), scaleM(sizeFit * 1.05))));
 
     const target = scene ? this.ownTarget(w, h).fb : fb;
     gl.bindFramebuffer(gl.FRAMEBUFFER, target);
@@ -569,6 +665,12 @@ export class HeroRenderer {
     }
     gl.uniform3f(this.u(sp, 'u_floorCol'), warm[0], warm[1], warm[2]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    if (shape === BUST_SHAPE) {
+      this.drawBust(num, project, t, local, proj, view, model, pal, warm, coolC);
+      if (scene && place) this.compositeScene(scene, place, num, pal, warm, t, w, h, fb);
+      return;
+    }
 
     // shards
     const p = this.prog;
@@ -614,8 +716,8 @@ export class HeroRenderer {
     gl.uniform1i(this.u(p, 'u_logo'), 0);
 
     gl.uniform1f(this.u(p, 'u_mode'), shape === 5 ? 1 : 0);
-    this.bindLayout(built.buf);
-    gl.drawArrays(gl.TRIANGLES, 0, built.count);
+    this.bindLayout(built!.buf);
+    gl.drawArrays(gl.TRIANGLES, 0, built!.count);
     if (num('debris') > 0.01 && shape !== 6) {
       gl.uniform1f(this.u(p, 'u_mode'), 2);
       gl.uniform1f(this.u(p, 'u_colourMode'), 0);
@@ -627,6 +729,157 @@ export class HeroRenderer {
     gl.disable(gl.BLEND);
     gl.depthMask(true);
     if (scene && place) this.compositeScene(scene, place, num, pal, warm, t, w, h, fb);
+  }
+
+  private loadBust(buf: ArrayBuffer) {
+    const gl = this.gl;
+    const head = new Uint32Array(buf, 0, 3);
+    const [nv, nt, ne] = [head[0], head[1], head[2]];
+    let off = 12;
+    const pos = new Float32Array(buf, off, nv * 3); off += nv * 12;
+    const nrm = new Float32Array(buf, off, nv * 3); off += nv * 12;
+    const tris = new Uint32Array(buf, off, nt * 3); off += nt * 12;
+    const edges = new Uint32Array(buf, off, ne * 2);
+    const sum = new Float32Array(nv), cnt = new Float32Array(nv);
+    for (let e = 0; e < ne; e++) {
+      const a = edges[e * 2], b2 = edges[e * 2 + 1];
+      const l = Math.hypot(pos[a * 3] - pos[b2 * 3], pos[a * 3 + 1] - pos[b2 * 3 + 1], pos[a * 3 + 2] - pos[b2 * 3 + 2]);
+      sum[a] += l; sum[b2] += l; cnt[a]++; cnt[b2]++;
+    }
+    const lens = Array.from(sum, (v, i) => v / Math.max(1, cnt[i])).sort((x, y) => x - y);
+    const median = lens[Math.floor(lens.length / 2)] || 1;
+    const data = new Float32Array(nv * 8);
+    for (let i = 0; i < nv; i++) {
+      data.set(pos.subarray(i * 3, i * 3 + 3), i * 8);
+      data.set(nrm.subarray(i * 3, i * 3 + 3), i * 8 + 3);
+      data[i * 8 + 6] = ((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      data[i * 8 + 7] = Math.min(1, Math.pow(sum[i] / Math.max(1, cnt[i]) / median, 1.3));
+    }
+    const vao = gl.createVertexArray()!;
+    gl.bindVertexArray(vao);
+    const vb = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    [[0, 3, 0], [1, 3, 3], [2, 1, 6], [3, 1, 7]].forEach(([loc, size, o]) => { gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 32, o * 4); });
+    gl.bindVertexArray(null);
+    const tb = gl.createBuffer()!;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tb);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, tris, gl.STATIC_DRAW);
+    const eb = gl.createBuffer()!;
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eb);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, edges, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    this.bust = { vao, tris: tb, edges: eb, nTris: nt * 3, nEdges: ne * 2, nVerts: nv };
+  }
+
+  /** Smooth wandering look direction plus stuttering glitch jerks */
+  private bustLook(num: (k: string) => number, local: number, t: number): [number, number, number] {
+    const sp = num('lookSpeed');
+    const amt = num('look');
+    const n = (k: number, f: number) => Math.sin(local * f * sp + k) * 0.6 + Math.sin(local * f * sp * 2.3 + k * 1.7) * 0.3 + Math.sin(local * f * sp * 0.37 + k * 0.3) * 0.4;
+    // calm glances: hold, then turn, like someone looking around a park
+    const yaw = Math.tanh(n(1.3, 0.22) * 1.6) * 0.55 * amt;
+    const pitch = (n(4.1, 0.17) * 0.12 - 0.02) * amt;
+    const roll = n(7.7, 0.13) * 0.05 * amt;
+    const jerk = num('jerk');
+    if (jerk < 0.02) return [yaw, pitch, roll];
+    // jerks snap to a new angle in a few stuttering frames, often looking up
+    const frame = Math.floor(t * 12);
+    const h = (k: number) => { const x = Math.sin(frame * 91.7 + k * 37.1) * 43758.5453; return x - Math.floor(x); };
+    return [yaw + (h(1) - 0.5) * 1.1 * jerk, pitch - (0.15 + h(2) * 0.45) * jerk, roll + (h(3) - 0.5) * 0.5 * jerk];
+  }
+
+  private drawBust(num: (k: string) => number, project: Project, t: number, local: number, proj: Float32Array, view: Float32Array, model: Float32Array, pal: Rgb[], warm: Rgb, cool: Rgb) {
+    const gl = this.gl;
+    const b = this.bust;
+    if (!b) return;
+    const p = this.bustProg;
+    gl.useProgram(p.prog);
+    gl.bindVertexArray(b.vao);
+    gl.uniformMatrix4fv(this.u(p, 'u_proj'), false, proj);
+    gl.uniformMatrix4fv(this.u(p, 'u_view'), false, view);
+    gl.uniformMatrix4fv(this.u(p, 'u_model'), false, model);
+    const look = this.bustLook(num, local, t);
+    gl.uniform3f(this.u(p, 'u_look'), look[0], look[1], look[2]);
+    const sframe = Math.floor(t * 3);
+    const hs = (k: number) => { const x = Math.sin(sframe * 12.3 + k * 4.1) * 9871.13; return x - Math.floor(x); };
+    const sd = [hs(1) - 0.5, 0.6 + hs(2) * 0.6, hs(3) - 0.5];
+    const sl = Math.hypot(sd[0], sd[1], sd[2]);
+    gl.uniform3f(this.u(p, 'u_stretchDir'), sd[0] / sl, sd[1] / sl, sd[2] / sl);
+    const stretch = num('stretch');
+    gl.uniform1f(this.u(p, 'u_stretch'), stretch * 0.4);
+    gl.uniform1f(this.u(p, 'u_bulge'), num('bulge'));
+    gl.uniform1f(this.u(p, 'u_spikes'), num('hats') * 0.6);
+    gl.uniform1f(this.u(p, 'u_breathe'), num('breathe') + 0.5 + Math.sin(local * 1.3) * 0.5);
+    gl.uniform1f(this.u(p, 'u_burst'), num('burst') * 0.6);
+    gl.uniform1f(this.u(p, 'u_time'), local);
+    gl.uniform1f(this.u(p, 'u_pointSize'), num('pointSize'));
+    gl.uniform3f(this.u(p, 'u_line'), cool[0], cool[1], cool[2]);
+    gl.uniform3f(this.u(p, 'u_glow'), warm[0], warm[1], warm[2]);
+    gl.uniform3f(this.u(p, 'u_cam'), 0, 0, 4.4);
+    gl.uniform1f(this.u(p, 'u_scan'), num('scanLine'));
+    gl.uniform1f(this.u(p, 'u_scanPos'), 1.2 - ((local * 0.35) % 1) * 2.6);
+    const kickV = num('kick');
+    gl.uniform1f(this.u(p, 'u_pulse'), kickV);
+    gl.uniform1f(this.u(p, 'u_pulsePos'), -1 + (1 - kickV) * 2.4);
+    const style = Math.round(num('bustStyle'));
+    const bright = num('lineGlow') * num('brightness');
+    const setOffset = (x: number, y: number, z: number, echo: number) => { gl.uniform3f(this.u(p, 'u_offset'), x, y, z); gl.uniform1f(this.u(p, 'u_echo'), echo); };
+    setOffset(0, 0, 0, 0);
+    gl.uniform1f(this.u(p, 'u_isPoint'), 0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    // hide the lines on the far side: fill the depth buffer with the surface first, pushed back a touch
+    if (style === 3) {
+      gl.uniform1f(this.u(p, 'u_mode'), 1);
+      gl.uniform1f(this.u(p, 'u_bright'), num('brightness'));
+      gl.uniform1f(this.u(p, 'u_alpha'), 1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.tris);
+      gl.drawElements(gl.TRIANGLES, b.nTris, gl.UNSIGNED_INT, 0);
+    } else {
+      gl.colorMask(false, false, false, false);
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(1.5, 2);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.tris);
+      gl.drawElements(gl.TRIANGLES, b.nTris, gl.UNSIGNED_INT, 0);
+      gl.disable(gl.POLYGON_OFFSET_FILL);
+      gl.colorMask(true, true, true, true);
+    }
+    gl.uniform1f(this.u(p, 'u_mode'), 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.depthMask(false);
+    const drawLines = (alpha: number) => { gl.uniform1f(this.u(p, 'u_alpha'), alpha); gl.uniform1f(this.u(p, 'u_bright'), bright); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.edges); gl.drawElements(gl.LINES, b.nEdges, gl.UNSIGNED_INT, 0); };
+    const drawPoints = (alpha: number) => { gl.uniform1f(this.u(p, 'u_isPoint'), 1); gl.uniform1f(this.u(p, 'u_alpha'), alpha); gl.uniform1f(this.u(p, 'u_bright'), bright); gl.drawArrays(gl.POINTS, 0, b.nVerts); gl.uniform1f(this.u(p, 'u_isPoint'), 0); };
+    const drawAll = (alpha: number) => {
+      if (style === 0 || style === 2) drawLines(alpha * (style === 2 ? 0.6 : 1));
+      if (style === 1 || style === 2) drawPoints(alpha);
+      if (style === 3) drawLines(alpha * 0.25);
+    };
+    drawAll(0.55);
+    // faint lines on the back of the head, seen through the front
+    const see = num('seeThrough');
+    if (see > 0.01 && style !== 3) { gl.disable(gl.DEPTH_TEST); drawAll(0.55 * see * 0.5); gl.enable(gl.DEPTH_TEST); }
+    // shaking ghosts and smeared echoes
+    const ghosts = num('ghosts');
+    if (ghosts > 0.03 || stretch > 0.05) {
+      gl.disable(gl.DEPTH_TEST);
+      const frame = Math.floor(t * 15);
+      for (let k = 1; k <= 3; k++) {
+        const h = (q: number) => { const x = Math.sin((frame + k * 17) * 78.233 + q * 12.9898) * 43758.5453; return x - Math.floor(x); };
+        const amp = ghosts * 0.09;
+        setOffset((h(1) - 0.5) * amp * 2, (h(2) - 0.5) * amp, (h(3) - 0.5) * amp, stretch * k * 0.25);
+        drawAll(0.55 * Math.max(ghosts, stretch * 0.6) * (0.45 - k * 0.1));
+      }
+      setOffset(0, 0, 0, 0);
+      gl.enable(gl.DEPTH_TEST);
+    }
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    void project; void pal;
   }
 
   private compositeScene(scene: SceneInput, place: { orbC: [number, number]; orbR: number; orbD: number; shadowC: [number, number]; shadowD: number; float: number }, num: (k: string) => number, pal: Rgb[], warm: Rgb, t: number, w: number, h: number, fb: WebGLFramebuffer) {

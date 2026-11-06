@@ -21,6 +21,7 @@ export const LOGO_LAYER: LayerDef = {
     f('texture', 'Print texture', 0, 1, 0.35, { group: 'Look' }),
     f('shadow', 'Shadow', 0, 1, 0.45, { group: 'Look' }),
     f('outside', 'Darken around logo', 0, 1, 0, { group: 'Look' }),
+    f('visibility', 'Visibility', 0, 1, 1, { group: 'Look' }),
     sel('letterFx', 'Letter reaction', LETTER_FX, 0, { group: 'Letters' }),
     f('s', 'S', 0, 1, 0, { group: 'Letters' }),
     f('k', 'K', 0, 1, 0, { group: 'Letters' }),
@@ -36,6 +37,8 @@ export const LOGO_LAYER: LayerDef = {
     f('breathe', 'Breathe', 0, 1, 0, { group: 'Shape' }),
     f('melt', 'Melt', 0, 1, 0, { group: 'Shape' }),
     f('tension', 'Tension (jitter)', 0, 1, 0, { group: 'Shape' }),
+    f('zoom', 'Fly through (zoom)', 1, 80, 1, { group: 'Fly through' }),
+    sel('zoomLetter', 'Fly through the letter', ['S', 'K', 'I', 'M', 'O'], 2, { group: 'Fly through' }),
     sel('morphShape', 'Morph into', MORPH_SHAPES, 0, { group: 'Shape' }),
     f('morph', 'Morph amount', 0, 1, 0, { group: 'Shape' })
   ],
@@ -60,31 +63,33 @@ void morphCorners(int s, out vec2 tl, out vec2 tr, out vec2 br, out vec2 bl){
 }
 vec2 warp(vec2 iuv){
   float tt = floor(u_t * 12.0);
+  // when flying through a letter, the shape's reactions would be magnified by the zoom, so calm them
+  float calm = 1.0 / max(1.0, p_zoom);
   vec2 c = iuv - 0.5;
   // stretch and squash about the centre
-  c /= vec2(1.0 + p_stretch * 0.28, 1.0 - p_stretch * 0.16);
+  c /= vec2(1.0 + p_stretch * 0.28 * calm, 1.0 - p_stretch * 0.16 * calm);
   // skew snap
-  c.x += c.y * p_skew * 0.45;
+  c.x += c.y * p_skew * 0.45 * calm;
   iuv = c + 0.5;
   // corner jolts, morph targets and tension jitter, blended across the shape
   vec2 tl, tr, br, bl; morphCorners(int(p_morphShape + 0.5), tl, tr, br, bl);
-  float jt = p_jolt * 0.08 + p_tension * 0.03;
+  float jt = (p_jolt * 0.08 + p_tension * 0.03) * calm;
   vec2 j0 = (vec2(hash11(tt + 1.0), hash11(tt + 2.0)) - 0.5) * jt;
   vec2 j1 = (vec2(hash11(tt + 3.0), hash11(tt + 4.0)) - 0.5) * jt;
   vec2 j2 = (vec2(hash11(tt + 5.0), hash11(tt + 6.0)) - 0.5) * jt;
   vec2 j3 = (vec2(hash11(tt + 7.0), hash11(tt + 8.0)) - 0.5) * jt;
-  vec2 off = bilerp(tl * p_morph + j0, tr * p_morph + j1, br * p_morph + j2, bl * p_morph + j3, clamp(iuv, 0.0, 1.0));
+  vec2 off = bilerp(tl * p_morph * calm + j0, tr * p_morph * calm + j1, br * p_morph * calm + j2, bl * p_morph * calm + j3, clamp(iuv, 0.0, 1.0));
   iuv -= off;
   if (int(p_morphShape + 0.5) == 3) iuv.y += sin(iuv.x * 9.0 - u_t * 4.0) * 0.06 * p_morph;
   // breathing ripple along the edges
-  iuv += (vec2(noise(iuv * 6.0 + u_t * 0.8), noise(iuv * 6.0 + 7.0 - u_t * 0.8)) - 0.5) * 0.025 * p_breathe;
+  iuv += (vec2(noise(iuv * 6.0 + u_t * 0.8), noise(iuv * 6.0 + 7.0 - u_t * 0.8)) - 0.5) * 0.025 * p_breathe * calm;
   // melt: the lower part drips downwards
   if (p_melt > 0.0){
     float drip = fbm(vec2(iuv.x * 7.0, 1.3)) * (0.7 + 0.3 * sin(u_t * 0.7 + iuv.x * 5.0));
     iuv.y -= drip * p_melt * 0.45 * smoothstep(0.2, 1.0, iuv.y);
   }
   // glitch: horizontal slices jump sideways
-  float g = p_glitch + p_tension * 0.15;
+  float g = (p_glitch + p_tension * 0.15) * calm;
   if (g > 0.0){
     float sl = floor(iuv.y * 18.0);
     float h = hash11(sl + tt * 7.13 + u_seed);
@@ -110,9 +115,19 @@ vec3 letterFx(vec3 inp, float amt, float idx, vec2 centreUv){
 vec4 layer(){
   vec3 inp = texture(u_input, v_uv).rgb;
   vec2 centre = vec2(p_x * aspect() * 0.5, p_y * 0.5);
+  float LWb = min(aspect() * 0.92, 1.6) * p_scale * (1.0 + p_breathe * 0.05);
+  float LW = LWb * max(1.0, p_zoom);
+  if (p_zoom > 1.001){
+    // zoom into a letter, drawing it to the middle of the frame as the camera closes in
+    int zl = int(p_zoomLetter + 0.5);
+    // aim at the see-through stroke of each letter (the middle of the O is solid ink)
+    float fu = zl == 0 ? 0.151 : zl == 1 ? 0.265 : zl == 2 ? 0.454 : zl == 3 ? 0.512 : 0.745;
+    vec2 f = vec2((fu - 0.5) * LWb, -0.017 * LWb / LA);
+    vec2 target = mix(centre + f, vec2(0.0), smoothstep(1.0, 4.0, p_zoom));
+    centre = target - f * p_zoom;
+  }
   vec2 p = centered(v_uv) - centre;
   p = rot(radians(p_rotate)) * p;
-  float LW = min(aspect() * 0.92, 1.6) * p_scale * (1.0 + p_breathe * 0.05);
   float LH = LW / LA;
   vec2 iuv = vec2(p.x / LW + 0.5, 0.5 - p.y / LH);
   // shatter: the shape breaks into pieces that fly outwards, leaving gaps
@@ -149,6 +164,6 @@ vec4 layer(){
   float grain = (noise(wuv * vec2(420.0, 200.0)) - 0.5) * 0.18 + (fbm(wuv * vec2(8.0, 4.0)) - 0.5) * 0.25;
   vec3 ink = p_colour * (1.0 + grain * p_texture) * (1.0 + p_pulse * 0.6);
   c = mix(c, ink, solid);
-  return vec4(c, 1.0);
+  return vec4(mix(inp, c, clamp(p_visibility, 0.0, 1.0)), 1.0);
 }`
 };

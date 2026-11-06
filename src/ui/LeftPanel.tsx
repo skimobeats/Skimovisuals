@@ -3,21 +3,28 @@ import { useStore, Panel } from '../store';
 import { ALL_LAYERS } from '../engine/registry';
 import { platform } from '../platform';
 import { addLayer, importMedia, importMediaPaths } from './actions';
-import { layerThumbnails } from './thumbnails';
+import { layerThumbnails, onThumbnails } from './thumbnails';
 import { AudioPanel } from './AudioPanel';
 import { ColourPanel } from './ColourPanel';
 import { PresetsPanel } from './PresetsPanel';
 import { TEXT_FONTS } from '../engine/layers/media';
 import { TRANSITIONS } from '../engine/transitions';
 import { HERO_SHAPES } from '../engine/hero';
+import { INTROS, applyIntro, applySavedIntro, removeIntro, isIntroClip, introEndTime, introFromProject, IntroEnd } from '../intros';
+import { loadPresets, savePresets, PresetFile } from '../projectIO';
+import { askText } from './prompt';
+import { fmtTime, NumberInput } from './common';
+import { playback } from '../playback';
+import { useEffect } from 'react';
 import { selectedClips } from '../store';
 import logoUrl from '../assets/skimo-logo.png';
-import type { Clip } from '../types';
+import type { Clip, Project } from '../types';
 import { mod } from '../engine/layers/types';
 
 const TABS: { id: Panel; label: string; ico: string }[] = [
   { id: 'audio', label: 'Audio', ico: '♫' },
   { id: 'skimo', label: 'Skimo', ico: '◢' },
+  { id: 'intros', label: 'Intros', ico: '▶' },
   { id: 'media', label: 'Media', ico: '🖼' },
   { id: 'generators', label: 'Visuals', ico: '✺' },
   { id: 'effects', label: 'Effects', ico: '✧' },
@@ -49,6 +56,7 @@ export function LeftPanel() {
         {panel === 'effects' && <LayerLibrary category="effect" title="Effects" hint="Effects change everything on the tracks below them. Put them above your visuals." />}
         {(panel === 'skimo' || panel === 'text') && <SkimoPanel />}
         {panel === 'transitions' && <TransitionsPanel />}
+        {panel === 'intros' && <IntrosPanel />}
         {panel === 'colour' && <ColourPanel />}
         {panel === 'presets' && <PresetsPanel />}
       </div>
@@ -59,6 +67,8 @@ export function LeftPanel() {
 function LayerLibrary({ category, title, hint }: { category: string; title: string; hint: string }) {
   const basePal = useStore((s) => s.project!.basePaletteId);
   const thumbs = useMemo(() => layerThumbnails(basePal), [basePal]);
+  const [, refresh] = useState(0);
+  useEffect(() => onThumbnails(() => refresh((x) => x + 1)), []);
   const [q, setQ] = useState('');
   const defs = ALL_LAYERS.filter((d) => d.category === category && d.id !== 'hero' && (!q || (d.name + d.description).toLowerCase().includes(q.toLowerCase())));
   return (
@@ -259,6 +269,84 @@ function TransitionsPanel() {
           </div>
         ))}
       </div>
+    </>
+  );
+}
+
+function IntrosPanel() {
+  const project = useStore((s) => s.project)!;
+  const [endKind, setEndKind] = useState<'drop' | 'marker' | 'bars'>('drop');
+  const [markerId, setMarkerId] = useState(project.markers[0]?.id || '');
+  const [bars, setBars] = useState(8);
+  const [title, setTitle] = useState(true);
+  const [presets, setPresets] = useState<PresetFile | null>(null);
+  useEffect(() => { loadPresets().then(setPresets); }, []);
+  const end: IntroEnd = endKind === 'marker' && markerId ? { kind: 'marker', markerId } : endKind === 'bars' ? { kind: 'bars', bars } : { kind: 'drop' };
+  const E = introEndTime(project, end);
+  const hasIntro = project.clips.some(isIntroClip);
+  const ready = project.audio.length > 0;
+  const go = (fn: (p: Project) => void) => {
+    if (!ready) { useStore.getState().showToast('Load your track first'); return; }
+    useStore.getState().update(fn);
+    playback.seek(0);
+  };
+  return (
+    <>
+      <h3>Intros</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>A ready made opening that builds up to the first big moment of your track. It arrives as normal layers on the timeline, so you can change anything afterwards.</div>
+      <div className="kv">
+        <label>Ends at</label>
+        <select value={endKind} onChange={(e) => setEndKind(e.target.value as typeof endKind)}>
+          <option value="drop">The first drop</option>
+          <option value="marker" disabled={!project.markers.length}>A section marker</option>
+          <option value="bars">After a number of bars</option>
+        </select>
+        {endKind === 'marker' && <><label /><select value={markerId} onChange={(e) => setMarkerId(e.target.value)}>{project.markers.map((m) => <option key={m.id} value={m.id}>{m.name} ({fmtTime(m.t, true)})</option>)}</select></>}
+        {endKind === 'bars' && <><label /><div className="row"><NumberInput value={bars} min={1} max={64} step={1} onCommit={setBars} /><span className="small muted">bars</span></div></>}
+        <label />
+        <span className="tiny muted">{ready ? `Ends at ${fmtTime(E, true)}${endKind === 'drop' && !project.markers.some((m) => /drop|chorus|hook|peak/i.test(m.name)) ? ' (no Drop marker found, so it uses the first marker or 8 bars)' : ''}` : 'Load your track first'}</span>
+        <label>Title</label>
+        <label className="row small"><input type="checkbox" checked={title} onChange={(e) => setTitle(e.target.checked)} />Show SKIMO:TRACK NAME during the intro</label>
+      </div>
+      <div className="col" style={{ gap: 6, marginTop: 10 }}>
+        {INTROS.map((i) => (
+          <div key={i.id} className="card" style={{ cursor: 'default' }}>
+            <div className="title">▶ {i.name}</div>
+            <div className="desc">{i.description}</div>
+            <div className="row" style={{ marginTop: 6 }}>
+              <button className="small primary" disabled={!ready} onClick={() => go((p) => { applyIntro(p, i.id, { end, title }); })}>{hasIntro ? 'Use this intro instead' : 'Add this intro'}</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {hasIntro && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="small danger" onClick={() => useStore.getState().update((p) => removeIntro(p))}>Remove intro</button>
+          <button className="small" onClick={async () => {
+            const name = await askText('Name this intro', 'My intro');
+            if (!name || !presets) return;
+            const saved = introFromProject(useStore.getState().project!, name);
+            if (!saved) return;
+            const next = { ...presets, intros: [...presets.intros, saved] };
+            await savePresets(next); setPresets(next);
+            useStore.getState().showToast('Intro saved');
+          }}>Save this intro</button>
+        </div>
+      )}
+      {presets && presets.intros.length > 0 && (
+        <>
+          <h4>Your intros</h4>
+          <div className="col" style={{ gap: 4 }}>
+            {presets.intros.map((si) => (
+              <div key={si.id} className="row hint" style={{ margin: 0 }}>
+                <span className="grow" style={{ color: 'var(--text)' }}>{si.name}</span>
+                <button className="small primary" disabled={!ready} onClick={() => go((p) => { applySavedIntro(p, si, { end, title }); })}>Use</button>
+                <button className="iconbtn" onClick={async () => { if (!confirm(`Delete ${si.name}?`)) return; const next = { ...presets, intros: presets.intros.filter((x) => x.id !== si.id) }; await savePresets(next); setPresets(next); }}>×</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </>
   );
 }

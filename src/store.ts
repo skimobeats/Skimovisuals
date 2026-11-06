@@ -84,7 +84,7 @@ export function makeClip(type: string, trackId: string, start: number, end: numb
 
 export type Selection = { kind: 'clip'; ids: string[] } | { kind: 'transition'; id: string } | { kind: 'marker'; id: string } | { kind: 'pad'; id: string } | { kind: 'paletteKey'; id: string } | null;
 
-export type Panel = 'skimo' | 'media' | 'generators' | 'effects' | 'transitions' | 'text' | 'colour' | 'audio' | 'presets';
+export type Panel = 'intros' | 'skimo' | 'media' | 'generators' | 'effects' | 'transitions' | 'text' | 'colour' | 'audio' | 'presets';
 
 interface State {
   project: Project | null;

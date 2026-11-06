@@ -242,8 +242,9 @@ function ClipInspector({ clip }: { clip: Clip }) {
         </div>
       )}
 
+      {def.category === 'hero' && Number(clip.params.shape) === 7 && <div className="tiny dim" style={{ marginBottom: 6 }}>Head scan: "Infinite, 3D Head Scan" by Lee Perry-Smith (Infinite Realities), licensed under CC BY 3.0. Please credit it in your video description.</div>}
       {def.category === 'hero' && <SceneControls clip={clip} />}
-      {[...groups.entries()].filter(([g]) => g !== 'Scene' || clip.sceneMediaId).map(([g, params]) => (
+      {[...groups.entries()].filter(([g]) => (g !== 'Scene' || clip.sceneMediaId) && (g !== 'Bust' || Number(clip.params.shape) === 7)).map(([g, params]) => (
         <div key={g} className="group">
           <div className="group-title" onClick={() => setCollapsed((s) => ({ ...s, [g]: !s[g] }))}>
             <span>{g}</span><span>{collapsed[g] ? '▸' : '▾'}</span>

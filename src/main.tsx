@@ -17,6 +17,8 @@ import { ALL_LAYERS } from './engine/registry';
 import { makeClip } from './store';
 (window as any).__skimoLayers = ALL_LAYERS;
 import * as sceneMod from './scene/scene';
+import * as introsMod from './intros';
+(window as any).__skimoIntros = introsMod;
 (window as any).__skimoScene = sceneMod;
 (window as any).__skimoMakeClip = makeClip;
 (window as any).__skimo = { useStore, analyseProject, generate, ExportJob, audio: audioMod, importMediaPaths, playback, saveProject, openProjectFile };

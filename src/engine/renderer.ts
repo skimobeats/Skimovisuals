@@ -25,6 +25,7 @@ export class Renderer {
   private blendProg: Program;
   private transProg: Program;
   private hero: HeroRenderer;
+  get heroReady() { return this.hero.bustReady; }
   private depthTex = new Map<string, WebGLTexture>();
   private accA!: Target; private accB!: Target; private layer!: Target; private out8?: Target;
   private tmpA!: Target; private tmpB!: Target;
@@ -52,7 +53,7 @@ export class Renderer {
     this.copyProg = this.compile('__copy', COPY_FRAG);
     this.blendProg = this.compile('__blend', BLEND_FRAG);
     this.transProg = this.compile('__transition', TRANSITION_FRAG);
-    this.hero = new HeroRenderer(gl, this.quad);
+    this.hero = new HeroRenderer(gl, this.quad, () => this.onMediaReady?.());
     this.errors.push(...this.hero.errors);
     this.black = this.makeTex(1, 1, new Uint8Array([0, 0, 0, 0]));
     // the Skimo logo masks
@@ -219,6 +220,7 @@ export class Renderer {
     await Promise.all(fonts.map((f) => document.fonts.load(`160px "${f}"`).catch(() => null)));
     const scenes = project.clips.map((c) => c.sceneMediaId).filter(Boolean).map((id) => project.media.find((m) => m.id === id)).filter((m): m is MediaItem => !!m && m.kind === 'image');
     await Promise.all(scenes.map((m) => sceneData(m).catch(() => null)));
+    await this.hero.bustReady;
     if (!this.logo.ready) await new Promise<void>((res) => { this.logo.img.addEventListener('load', () => res(), { once: true }); setTimeout(res, 5000); });
     await Promise.all(project.media.map((item) => {
       const m = this.mediaTex(item);

@@ -529,6 +529,157 @@ vec4 layer(){
 }`
   },
   {
+    id: 'lattice', name: 'Infinite Lattice', category: 'generator', tags: ['lattice', 'hypnotic', 'vast', '3d'],
+    description: 'Fly through an endless structure of glowing beams and points of light. The kick sends a wave of light through it.',
+    params: [
+      sel('kind', 'Structure', ['Triangles', 'Cubes', 'Triangles and cubes'], 0),
+      f('density', 'Density', 0.3, 3, 0.75),
+      f('thickness', 'Beam thickness', 0.2, 3, 1),
+      f('glow', 'Glow', 0, 3, 1),
+      f('lights', 'Points of light', 0, 3, 1),
+      f('haze', 'Distance haze', 0, 1, 0.5),
+      col('beamColour', 'Beam colour', '#ffad42', { group: 'Colour' }),
+      col('lightColour', 'Light colour', '#ffe6b5', { group: 'Colour' }),
+      col('hazeColour', 'Haze colour', '#2b1505', { group: 'Colour' }),
+      SPEED,
+      sel('step', 'Turn on', ['Off', 'Each kick', 'Each snare', 'Each beat', 'Each bar', 'Each section'], 4, { group: 'Motion' }),
+      f('turn', 'Turn amount', 0, 1, 0.25, { group: 'Motion' }),
+      f('roll', 'Roll', -1, 1, 0.15, { group: 'Motion' }),
+      f('pulse', 'Kick wave', 0, 1, 0, { group: 'Music' }),
+      f('flash', 'Beam flash', 0, 1, 0, { group: 'Music' }),
+      f('twinkle', 'Twinkle', 0, 1, 0, { group: 'Music' }),
+      f('dive', 'Outside to inside', 0, 1, 1, { group: 'Intro' }),
+      BRIGHT
+    ],
+    defaultMods: { pulse: mod('kick', 0.9, 0.5), flash: mod('snare', 0.5, 0.18), twinkle: mod('hats', 0.6, 0.1), speed: mod('level', 0.25, 0.3) },
+    glsl: `
+float latticeD(vec3 p, int kind){
+  float d = 1e9;
+  const float s = 0.70710678;
+  if (kind != 1) {
+    d = min(d, length(vec2((fract(p.x - p.y + 0.5) - 0.5) * s, fract(p.z + 0.5) - 0.5)));
+    d = min(d, length(vec2((fract(p.x + p.y + 0.5) - 0.5) * s, fract(p.z + 0.5) - 0.5)));
+    d = min(d, length(vec2((fract(p.x - p.z + 0.5) - 0.5) * s, fract(p.y + 0.5) - 0.5)));
+    d = min(d, length(vec2((fract(p.x + p.z + 0.5) - 0.5) * s, fract(p.y + 0.5) - 0.5)));
+    d = min(d, length(vec2((fract(p.y - p.z + 0.5) - 0.5) * s, fract(p.x + 0.5) - 0.5)));
+    d = min(d, length(vec2((fract(p.y + p.z + 0.5) - 0.5) * s, fract(p.x + 0.5) - 0.5)));
+  }
+  if (kind != 0) {
+    d = min(d, length(fract(p.yz + 0.5) - 0.5));
+    d = min(d, length(fract(p.xz + 0.5) - 0.5));
+    d = min(d, length(fract(p.xy + 0.5) - 0.5));
+  }
+  return d;
+}
+mat3 lookAt(vec3 f, float roll){ f = normalize(f); vec3 r = normalize(cross(vec3(sin(roll), cos(roll), 0.0), f)); vec3 u = cross(f, r); return mat3(r, u, f); }
+vec3 inside(vec2 p){
+  int kind = int(p_kind + 0.5);
+  float dens = p_density;
+  // look mostly along the lattice so its lines meet in starbursts, drifting a little off axis
+  float yaw = sin(u_time * 0.031) * 0.16 + u_step * p_turn * 0.55;
+  float pitch = 0.1 + sin(u_time * 0.043 + 1.0) * 0.12 + sin(u_step * 1.7) * p_turn * 0.2;
+  vec3 fwd = normalize(vec3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)));
+  vec3 ro = vec3(0.31, 0.43, 0.0) / dens + vec3(0.0, 0.0, 1.0) * u_time * 0.9 + vec3(sin(u_time * 0.07), cos(u_time * 0.05), 0.0) * 0.2;
+  mat3 cam = lookAt(fwd, p_roll * sin(u_time * 0.07) * 0.6);
+  vec3 rd = cam * normalize(vec3(p, 1.25));
+  vec3 acc = vec3(0.0);
+  float t = 0.02;
+  float thick = 0.012 * p_thickness;
+  float waveR = (1.0 - clamp(p_pulse, 0.0, 1.0)) * 14.0;
+  for (int i = 0; i < 72; i++){
+    vec3 q = (ro + rd * t) * dens;
+    float d = latticeD(q, kind) / dens;
+    vec3 cell = floor(q + 0.5);
+    float dn = length(q - cell) / dens;
+    float fog = exp(-t * (0.08 + p_haze * 0.4));
+    float wave = exp(-abs(t - waveR) * 2.5) * p_pulse;
+    float beam = 7.0 * exp(-d / (thick * 0.7)) + 0.06 * thick / (d + thick * 0.4);
+    float tw = mix(1.0, step(0.6, hash21(cell.xy + cell.z * 7.1 + floor(u_t * 10.0))), p_twinkle);
+    float light = 0.0035 / (dn * dn + 0.00004) * p_lights * tw;
+    float stepLen = max(min(d, dn) * 0.7, 0.012 + t * 0.006);
+    acc += (p_beamColour * beam * p_glow * (1.0 + p_flash * 2.5 + wave * 3.0) + p_lightColour * light * (1.0 + wave * 4.0)) * fog * stepLen;
+    t += stepLen;
+    if (t > 26.0) break;
+  }
+  // a warm haze glowing in the distance, brightest towards the vanishing point
+  acc += mix(p_hazeColour, p_beamColour * 0.5, 0.35) * (1.0 - exp(-t * 0.05 * (0.3 + p_haze))) * (0.5 + 0.5 * pow(max(dot(rd, fwd), 0.0), 8.0));
+  return acc;
+}
+float sdPyramid(vec3 p, float h){
+  float m2 = h * h + 0.25;
+  p.xz = abs(p.xz);
+  p.xz = (p.z > p.x) ? p.zx : p.xz;
+  p.xz -= 0.5;
+  vec3 q = vec3(p.z, h * p.y - 0.5 * p.x, h * p.x + 0.5 * p.y);
+  float s = max(-q.x, 0.0);
+  float t = clamp((q.y - 0.5 * p.z) / (m2 + 0.25), 0.0, 1.0);
+  float a = m2 * (q.x + s) * (q.x + s) + q.y * q.y;
+  float b = m2 * (q.x + 0.5 * t) * (q.x + 0.5 * t) + (q.y - m2 * t) * (q.y - m2 * t);
+  float d2 = min(q.y, -q.x * m2 - q.y * 0.5) > 0.0 ? 0.0 : min(a, b);
+  return sqrt((d2 + q.z * q.z) / m2) * sign(max(q.z, -p.y));
+}
+vec3 outside(vec2 p, float k){
+  // a glowing pyramid on a dark plain; the camera approaches, rises up its face and dives in
+  float S = 9.0;
+  float a = smoothstep(0.0, 0.55, k), b = smoothstep(0.45, 0.9, k), c = smoothstep(0.8, 1.0, k);
+  vec3 ro = mix(vec3(0.0, 1.2, -34.0), vec3(0.0, 2.5, -9.0), a);
+  ro = mix(ro, vec3(0.0, 6.5, -4.6), b);
+  ro = mix(ro, vec3(0.0, 4.6, -2.2), c);
+  vec3 target = mix(vec3(0.0, 4.0, 0.0), vec3(0.0, 8.5, 0.0), b);
+  target = mix(target, vec3(0.0, 4.2, 0.0), c);
+  mat3 cam = lookAt(target - ro, 0.0);
+  vec3 rd = cam * normalize(vec3(p, 1.3));
+  vec3 col = mix(vec3(0.01, 0.012, 0.03), p_hazeColour * 0.25, smoothstep(0.3, -0.05, rd.y));
+  col += step(0.9975, hash21(floor(rd.xy * 420.0 + rd.z * 300.0))) * smoothstep(0.0, 0.3, rd.y) * 0.8;
+  float t = 0.0; bool hit = false; vec3 pos;
+  for (int i = 0; i < 90; i++){
+    pos = ro + rd * t;
+    float d = sdPyramid(pos / S, 1.0) * S;
+    if (d < 0.002 * t) { hit = true; break; }
+    t += d;
+    if (t > 80.0) break;
+  }
+  float glowRim = 0.0;
+  if (hit){
+    // a triangular grid across each face, with lights where the lines cross
+    vec2 f2 = abs(pos.x) > abs(pos.z) ? vec2(pos.z, pos.y) : vec2(pos.x, pos.y);
+    float k = 1.5 * p_density;
+    vec2 g = f2 * k;
+    float l1 = abs(fract(g.y + 0.5) - 0.5);
+    float l2 = abs(fract((g.y + g.x * 1.732) * 0.5 + 0.5) - 0.5);
+    float l3 = abs(fract((g.y - g.x * 1.732) * 0.5 + 0.5) - 0.5);
+    float lines = min(l1, min(l2, l3));
+    float px = 0.02 * p_thickness;
+    float l = smoothstep(px * 2.0, 0.0, lines) + exp(-lines / px) * 0.3;
+    float nodes = smoothstep(0.09, 0.0, l1 + l2 + l3 - 0.0);
+    col = p_beamColour * (0.35 + l * 1.3 * p_glow) + p_lightColour * nodes * p_lights * 1.5 * (1.0 + p_pulse * 2.0);
+    col *= 0.6 + 0.4 * clamp(pos.y / S, 0.0, 1.0);
+    col *= 1.0 + p_flash;
+  } else if (rd.y < 0.0) {
+    float tg = -ro.y / rd.y;
+    vec3 g = ro + rd * tg;
+    float near = exp(-length(g.xz) * 0.06);
+    col = mix(vec3(0.015, 0.02, 0.012), p_beamColour * 0.35, near) * exp(-tg * 0.01);
+  }
+  // beacon at the top
+  vec3 apex = vec3(0.0, S, 0.0);
+  float da = length(cross(rd, apex - ro)) / max(dot(rd, apex - ro), 0.001);
+  col += p_lightColour * exp(-da * 60.0) * 1.2;
+  return col;
+}
+vec4 layer(){
+  vec2 p = centered(v_uv) * 1.6;
+  vec3 c;
+  if (p_dive >= 0.999) c = inside(p);
+  else {
+    c = outside(p, p_dive);
+    float m = smoothstep(0.9, 0.999, p_dive);
+    if (m > 0.0) c = mix(c, inside(p), m) + p_lightColour * sin(m * PI) * 0.25;
+  }
+  return vec4(c * p_brightness, 1.0);
+}`
+  },
+  {
     id: 'solid', name: 'Solid / Gradient', category: 'generator', tags: ['background'],
     description: 'A flat colour or simple gradient. Handy as a background.',
     params: [

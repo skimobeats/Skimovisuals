@@ -1,6 +1,7 @@
 import type { Clip, Palette, Project, Track, PaletteKey } from './types';
 import { platform, joinPath } from './platform';
 import { useStore, uid, migrateProject } from './store';
+import type { SavedIntro } from './intros';
 import { clearAudio, loadProjectAudio, audioDuration, laneDefs, detectLane } from './audio/audio';
 
 export const PROJECT_FILTERS = [{ name: 'Skimovisuals project', extensions: ['skimo'] }];
@@ -81,7 +82,7 @@ export async function autosavePath() {
 // ---------- Presets (shared between projects) ----------
 export interface LayerPreset { id: string; name: string; clip: Omit<Clip, 'id' | 'trackId' | 'start' | 'end'>; }
 export interface LookPreset { id: string; name: string; bpm: number; beatsPerBar: number; tracks: Track[]; clips: Clip[]; basePaletteId: string; paletteKeys: PaletteKey[]; paletteCycle: Project['paletteCycle']; palettes: Palette[]; }
-export interface PresetFile { layers: LayerPreset[]; looks: LookPreset[]; palettes: Palette[]; }
+export interface PresetFile { layers: LayerPreset[]; looks: LookPreset[]; palettes: Palette[]; intros: SavedIntro[]; }
 
 let presetCache: PresetFile | null = null;
 
@@ -91,8 +92,8 @@ export async function loadPresets(): Promise<PresetFile> {
   if (presetCache) return presetCache;
   const text = await platform.readText(await presetPath());
   try { presetCache = text ? JSON.parse(text) : null; } catch { presetCache = null; }
-  if (!presetCache) presetCache = { layers: [], looks: [], palettes: [] };
-  presetCache.palettes ||= []; presetCache.layers ||= []; presetCache.looks ||= [];
+  if (!presetCache) presetCache = { layers: [], looks: [], palettes: [], intros: [] };
+  presetCache.palettes ||= []; presetCache.layers ||= []; presetCache.looks ||= []; presetCache.intros ||= [];
   return presetCache;
 }
 

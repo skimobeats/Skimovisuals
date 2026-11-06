@@ -18,8 +18,10 @@ A new installer is built automatically every time the code changes. If you ever 
 3. **Sections**: press **M** to drop a marker (intro, build, drop and so on), or press **Suggest sections**.
 4. **✨ Generate for me**: pick a style, colours and energy and it builds a full set of layers that follow your track. Press **🎲 Try another** for a different take. Everything it makes can be edited.
 5. **Skimo tab**: add your stencil logo for the whole song. Everything below shows through the letters, each letter reacts to its own part of the track (S kick, K snare, I hats, M bass, O melody) and the shape glitches, skews, stretches, slips and breathes. Pick a logo style (Reactive, Clean, Print, Chaos, Melt) and add a "SKIMO:TRACK NAME" title.
-6. **3D hero shapes** (Visuals tab): Orb, Crystal, Monolith, Ring, Shard cloud, Liquid blob and a 3D Logo slab. Shards push out on the kick, scatter on the snare, spike on the hats, ripple with the melody, breathe with the bass and can burst apart on drops, throwing debris on big kicks. Put them under the Skimo logo.
+6. **3D hero shapes** (Visuals tab): Orb, Crystal, Monolith, Ring, Shard cloud, Liquid blob, a 3D Logo slab and a **Scanned bust** (a real head and shoulders scan drawn as glowing wireframe, points or a solid scan, that looks around calmly and glitches, jerks, stretches and shakes with the music; please credit the scan, see NOTICE.md). Shards push out on the kick, scatter on the snare, spike on the hats, ripple with the melody, breathe with the bass and can burst apart on drops, throwing debris on big kicks. Put them under the Skimo logo.
    **Into a photo:** select a 3D hero, choose a photo under **Background scene** in its settings, then click **Place in the scene** and click the preview. The app works out the depth of the photo (a few seconds, once per photo), so things nearer than the shape hide it, it sits on the ground with a real shadow or floats, picks up the photo's light and reflections, and the camera drifts gently with parallax.
+   **Infinite Lattice** (Visuals tab): fly through an endless structure of glowing beams and points of light; the kick sends a wave of light through it.
+   **Intros tab**: pick a ready made opening (The Dive, Orb Assembly, Logo Ignition, Through the Letters, Print Run), choose where it ends (first drop, a marker or a number of bars) and whether to show the title. Save your own intros to reuse.
 7. **Build it yourself**: drag visuals, effects, images and text onto the timeline. Higher tracks sit on top of lower ones, and effects change everything on the tracks below them.
 8. **Transitions tab**: drag a transition (crossfade, Skimo wipe, glitch cut, zoom and more) onto the join between two clips that touch on the same track. Drag the round handles on a clip's top corners to set its fades.
 9. **Make things react**: click a layer, then the 🔗 button beside any setting and pick Kick, Snare, Bass, Beat and more. Amount sets how strongly it reacts and Release sets how quickly it settles.
@@ -46,6 +48,8 @@ Projects save as `.skimo` files. The app remembers the last folder you used for 
 | ← → | Move one beat (hold Shift for a bar) |
 | Ctrl+scroll | Zoom the timeline |
 | Alt while dragging | Turn snapping off temporarily |
+
+Credits for the head scan, depth model and font are in [NOTICE.md](NOTICE.md).
 
 ## For developers
 

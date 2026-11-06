@@ -2,10 +2,12 @@
 import { Renderer } from '../engine/renderer';
 import { newProject, makeClip } from '../store';
 import { ALL_LAYERS } from '../engine/registry';
-import { HERO_SHAPES } from '../engine/hero';
+import { HERO_SHAPES, BUST_SHAPE } from '../engine/hero';
 
 const cache = new Map<string, string>();
 let cachedPalette = '';
+const listeners = new Set<() => void>();
+export function onThumbnails(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
 
 export function layerThumbnails(paletteId: string): Map<string, string> {
   if (cachedPalette === paletteId && cache.size) return cache;
@@ -20,7 +22,7 @@ export function layerThumbnails(paletteId: string): Map<string, string> {
     const track = p.tracks[0].id;
     const under = makeClip('shapes', track, 0, 100);
     // the 3D hero shapes, one picture per shape
-    for (let shape = 0; shape < HERO_SHAPES.length; shape++) {
+    const heroThumb = (shape: number) => {
       const c = makeClip('hero', p.tracks[1].id, 0, 100);
       c.params.shape = shape;
       c.mods = {};
@@ -29,7 +31,10 @@ export function layerThumbnails(paletteId: string): Map<string, string> {
       r.renderFrame(p, 3, 192, 108);
       r.present();
       cache.set('hero:' + shape, canvas.toDataURL('image/jpeg', 0.8));
-    }
+    };
+    for (let shape = 0; shape < HERO_SHAPES.length; shape++) if (shape !== BUST_SHAPE) heroThumb(shape);
+    // the scanned bust loads a moment later
+    r.heroReady.then(() => { heroThumb(BUST_SHAPE); for (const l of listeners) l(); r.gl.getExtension('WEBGL_lose_context')?.loseContext(); });
     for (const def of ALL_LAYERS) {
       if (def.category === 'media' || def.category === 'hero') continue;
       const c = makeClip(def.id, p.tracks[1].id, 0, 100, def.category === 'text' ? { text: 'Aa' } : {});
@@ -43,7 +48,6 @@ export function layerThumbnails(paletteId: string): Map<string, string> {
       r.present();
       cache.set(def.id, canvas.toDataURL('image/jpeg', 0.8));
     }
-    r.gl.getExtension('WEBGL_lose_context')?.loseContext();
   } catch (e) {
     console.warn('Thumbnails failed', e);
   }
