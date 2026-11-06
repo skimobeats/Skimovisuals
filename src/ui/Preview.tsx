@@ -64,11 +64,29 @@ export function Preview() {
 
   const project = useStore((s) => s.project)!;
   const recording = useStore((s) => s.recording);
+  const placing = useStore((s) => s.placing);
+  // click and drag on the preview to place a 3D hero into its scene
+  const onPlaceDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const id = useStore.getState().placing;
+    if (!id) return;
+    const canvas = e.currentTarget;
+    const set = (ev: { clientX: number; clientY: number }, history: boolean) => {
+      const r = canvas.getBoundingClientRect();
+      const u = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+      const v = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+      useStore.getState().update((p) => { const c = p.clips.find((x) => x.id === id); if (c) { c.params.sceneX = u; c.params.sceneY = v; } }, history);
+    };
+    set(e, true);
+    const move = (ev: MouseEvent) => set(ev, false);
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+  };
 
   return (
     <>
       <div className="preview-wrap">
-        {error ? <div className="hint">{error}</div> : <canvas key={epoch} ref={canvasRef} style={{ aspectRatio: `${project.settings.width} / ${project.settings.height}` }} />}
+        {error ? <div className="hint">{error}</div> : <canvas key={epoch} ref={canvasRef} onMouseDown={onPlaceDown} style={{ aspectRatio: `${project.settings.width} / ${project.settings.height}`, cursor: placing ? 'crosshair' : undefined }} />}
+        {placing && <div className="hint" style={{ position: 'absolute', top: 16, pointerEvents: 'none' }}>Click where the shape should go. Press Done placing in the settings when you are happy.</div>}
         {!project.audio.length && (
           <div style={{ position: 'absolute', textAlign: 'center' }} className="hint">
             Start by adding your track in the <b>Audio</b> tab on the left.

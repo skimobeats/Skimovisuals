@@ -10,7 +10,7 @@ export async function saveProject(saveAs = false): Promise<boolean> {
   if (!project) return false;
   let path = filePath;
   if (!path || saveAs) {
-    path = await platform.saveFile({ title: 'Save project', defaultPath: `${project.name || 'Untitled'}.skimo`, filters: PROJECT_FILTERS });
+    path = await platform.saveFile({ title: 'Save project', defaultPath: `${(project.name || 'Untitled').replace(/[\\/:*?"<>|]/g, '')}.skimo`, filters: PROJECT_FILTERS, kind: 'project' });
     if (!path) return false;
   }
   await platform.writeText(path, JSON.stringify(project, null, 1));
@@ -21,7 +21,7 @@ export async function saveProject(saveAs = false): Promise<boolean> {
 
 export async function openProjectFile(path?: string) {
   if (!path) {
-    const paths = await platform.openFiles({ title: 'Open project', filters: PROJECT_FILTERS });
+    const paths = await platform.openFiles({ title: 'Open project', filters: PROJECT_FILTERS, kind: 'project' });
     if (!paths.length) return;
     path = paths[0];
   }

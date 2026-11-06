@@ -36,7 +36,7 @@ export function AudioPanel() {
   const hasAnalysis = analyses.has('mix');
 
   const loadMaster = async () => {
-    const paths = await platform.openFiles({ title: 'Choose your track', filters: [{ name: 'Audio', extensions: AUDIO_EXT }] });
+    const paths = await platform.openFiles({ title: 'Choose your track', kind: 'audio', filters: [{ name: 'Audio', extensions: AUDIO_EXT }] });
     if (!paths.length) return;
     playback.pause();
     buffers.clear(); analyses.clear();
@@ -50,7 +50,7 @@ export function AudioPanel() {
   };
 
   const addStems = async () => {
-    const paths = await platform.openFiles({ title: 'Choose your stems', multi: true, filters: [{ name: 'Audio', extensions: AUDIO_EXT }] });
+    const paths = await platform.openFiles({ title: 'Choose your stems', kind: 'audio', multi: true, filters: [{ name: 'Audio', extensions: AUDIO_EXT }] });
     if (!paths.length) return;
     playback.pause();
     analyses.delete('mix');

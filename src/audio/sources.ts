@@ -25,6 +25,7 @@ export function listSources(project: Project): SourceInfo[] {
     { id: 'beatwave', label: 'Beat wave (smooth)', group: 'Tempo', kind: 'beat' },
     { id: 'barwave', label: 'Bar wave (smooth)', group: 'Tempo', kind: 'beat' },
     { id: 'section', label: 'New section (pulse)', group: 'Sections', kind: 'hits' },
+    { id: 'drop', label: 'Drops only (pulse)', group: 'Sections', kind: 'hits' },
     { id: 'sectionramp', label: 'Builds across each section', group: 'Sections', kind: 'env' }
   );
   return out;
@@ -71,6 +72,8 @@ export function beatInfo(project: Project, t: number) {
   return { beatLen, beatPos, barPos };
 }
 
+export const DROP_RE = /drop|chorus|hook|peak/i;
+
 export function sampleSource(project: Project, id: string, t: number, decay = 0.25): number {
   const mix = analyses.get('mix');
   switch (id) {
@@ -85,6 +88,12 @@ export function sampleSource(project: Project, id: string, t: number, decay = 0.
       if (id === 'beatwave') return 0.5 - 0.5 * Math.cos(beatPos * Math.PI * 2);
       return 0.5 - 0.5 * Math.cos(barPos * Math.PI * 2);
     }
+  }
+  if (id === 'drop') {
+    const ds = project.markers.filter((m) => DROP_RE.test(m.name) && m.t <= t);
+    if (!ds.length) return 0;
+    const last = Math.max(...ds.map((m) => m.t));
+    return Math.exp(-(t - last) / Math.max(0.05, decay));
   }
   if (id === 'section' || id === 'sectionramp') {
     const ms = project.markers;

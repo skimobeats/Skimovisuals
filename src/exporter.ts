@@ -1,8 +1,9 @@
 import type { Project } from './types';
 import { Renderer } from './engine/renderer';
 import { platform } from './platform';
+import { planExport, Quality, DRAFT_LIMIT_MB, fmtMB } from './exportPlan';
 
-export interface ExportSettings { outPath: string; encoder: 'auto' | 'nvenc' | 'cpu'; quality: 'high' | 'max' | 'small'; start: number; end: number; }
+export interface ExportSettings { outPath: string; encoder: 'auto' | 'nvenc' | 'cpu'; quality: Quality; start: number; end: number; keepFullSize?: boolean; }
 
 export interface ExportProgress { frame: number; total: number; fps: number; eta: number; encoder: string; }
 
@@ -21,12 +22,14 @@ export class ExportJob {
   async run(project: Project, s: ExportSettings, onProgress: (p: ExportProgress) => void): Promise<{ ok: boolean; message: string }> {
     const api = platform.api;
     if (!api) return { ok: false, message: 'Exporting only works in the desktop app.' };
-    const { width: w, height: h, fps } = project.settings;
-    let r = await this.makeRenderer(project, w, h);
+    const { fps } = project.settings;
     const duration = Math.max(0.1, s.end - s.start);
+    const plan = planExport(s.quality, project.settings.width, project.settings.height, fps, duration, s.keepFullSize);
+    const w = plan.width, h = plan.height;
+    let r = await this.makeRenderer(project, w, h);
     const total = Math.ceil(duration * fps);
     const audioInputs = project.audio.filter((a) => !a.muted).map((a) => ({ path: a.path, volume: a.volume }));
-    const job = await api.exportStart({ outPath: s.outPath, width: w, height: h, fps, duration, audio: audioInputs, audioStart: s.start, encoder: s.encoder, quality: s.quality });
+    const job = await api.exportStart({ outPath: s.outPath, width: w, height: h, fps, duration, audio: audioInputs, audioStart: s.start, encoder: s.encoder, videoKbps: plan.videoKbps, audioKbps: plan.audioKbps });
     const bufs = [new Uint8Array(w * h * 4), new Uint8Array(w * h * 4)];
     let pending: Promise<boolean> | null = null;
     let recoveries = 0;
@@ -64,7 +67,9 @@ export class ExportJob {
       if (pending) await pending;
       const res = await api.exportFinish(job.id);
       if (!res.ok) return { ok: false, message: 'The video encoder reported a problem:\n' + res.log };
-      return { ok: true, message: 'Export finished' };
+      const mb = res.size / 1e6;
+      const over = s.quality === 'draft' && mb > DRAFT_LIMIT_MB;
+      return { ok: true, message: `Export finished · ${fmtMB(mb)}${over ? ` (just over ${DRAFT_LIMIT_MB} MB; try again with "Always keep full size" off)` : ''}` };
     } catch (e) {
       await api.exportCancel(job.id);
       return { ok: false, message: e instanceof Error ? e.message : String(e) };

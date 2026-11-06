@@ -29,7 +29,8 @@ export interface Clip {
   font?: string;
   paletteId?: string | null; // null = follow project colour track
   mediaOffset?: number;    // in point for video
-  transitionIn?: ClipTransition | null; // transition from the clip just before this one on the same track
+  transitionIn?: ClipTransition | null;
+  sceneMediaId?: string | null; // 3D hero: background photo it is placed into // transition from the clip just before this one on the same track
   letterSpacing?: number;  // text: extra space between letters, as a fraction of the font size
   wide?: boolean;          // text: use the wide cut of the font
   upper?: boolean;         // text: force capitals

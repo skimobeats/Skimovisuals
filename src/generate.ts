@@ -10,6 +10,7 @@ export interface GenerateOptions {
   style: string;
   colours: 'skimo' | 'pastel' | 'style' | 'any';
   logo: boolean;
+  heroMode?: 'one' | 'sections';
   intensity: number;   // 0..1
   useMedia: boolean;
   title: string;
@@ -208,7 +209,7 @@ export function generate(project: Project, opts: GenerateOptions) {
     }
 
     // a 3D hero shape behind the logo, changing with each section
-    if (style.hero) {
+    if (style.hero && opts.heroMode === 'sections') {
       const shape = e > 0.65 ? pick([0, 0, 1, 4]) : e < 0.35 ? pick([3, 5, 0]) : pick([2, 4, 1, 0]);
       const hc = makeClip('hero', tHero.id, s.start, s.end, { name: ['Orb', 'Crystal', 'Monolith', 'Ring', 'Shard cloud', 'Liquid blob', 'Logo slab'][shape], blend: 'normal' });
       hc.params.shape = shape;
@@ -240,6 +241,21 @@ export function generate(project: Project, opts: GenerateOptions) {
       project.clips.push(fx);
     }
   });
+
+  // one hero shape for the whole song, bursting apart on the drops
+  if (style.hero && opts.heroMode !== 'sections') {
+    const shape = pick([0, 0, 0, 1, 5]);
+    const hc = makeClip('hero', tHero.id, 0, dur, { name: ['Orb', 'Crystal', 'Monolith', 'Ring', 'Shard cloud', 'Liquid blob'][shape], blend: 'normal', fadeIn: Math.min(3, dur / 6), fadeOut: Math.min(3, dur / 6) });
+    hc.params.shape = shape;
+    hc.params.variation = Math.floor(r() * 40);
+    hc.params.detail = pick([1, 1, 2]);
+    hc.params.spin = (r() < 0.5 ? -1 : 1) * (0.2 + intensity * 0.25);
+    hc.params.reach = 0.8 + intensity * 0.6;
+    hc.mods.burst = mod(project.markers.some((m) => /drop|chorus|hook|peak/i.test(m.name)) ? 'drop' : 'section', 0.75, 1.1);
+    hc.mods.reach = mod('sectionramp', 0.2, 0.3);
+    for (const m of Object.values(hc.mods)) if (!['drop', 'section', 'sectionramp'].includes(m.source)) m.amount *= 0.7 + intensity * 0.5;
+    project.clips.push(hc);
+  }
 
   // whole song effects
   for (const id of style.always) {

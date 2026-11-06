@@ -8,7 +8,7 @@ let lastOpts: GenerateOptions | null = null;
 
 export function GenerateDialog({ onClose }: { onClose: () => void }) {
   const project = useStore((s) => s.project)!;
-  const [opts, setOpts] = useState<GenerateOptions>(lastOpts || { style: 'skimo', colours: 'skimo', intensity: 0.65, useMedia: true, logo: true, title: '', seed: Math.floor(Math.random() * 100000) });
+  const [opts, setOpts] = useState<GenerateOptions>(lastOpts || { style: 'skimo', colours: 'skimo', intensity: 0.65, useMedia: true, logo: true, heroMode: 'one', title: '', seed: Math.floor(Math.random() * 100000) });
   const set = (p: Partial<GenerateOptions>) => setOpts((o) => ({ ...o, ...p }));
   const ready = analyses.has('mix');
   const sections = ready ? findSections(project) : [];
@@ -49,6 +49,13 @@ export function GenerateDialog({ onClose }: { onClose: () => void }) {
             </div>
             <label>Energy</label>
             <div className="row"><span className="tiny muted">Calm</span><input type="range" min={0} max={1} step={0.01} value={opts.intensity} onChange={(e) => set({ intensity: Number(e.target.value) })} /><span className="tiny muted">Wild</span></div>
+            {opts.style === 'skimo' && <>
+              <label>3D hero</label>
+              <div className="row">
+                <button className={opts.heroMode !== 'sections' ? 'active' : ''} onClick={() => set({ heroMode: 'one' })}>One for the whole song</button>
+                <button className={opts.heroMode === 'sections' ? 'active' : ''} onClick={() => set({ heroMode: 'sections' })}>New shape each section</button>
+              </div>
+            </>}
             <label>Skimo logo</label>
             <label className="row"><input type="checkbox" checked={opts.logo} onChange={(e) => set({ logo: e.target.checked })} /><span className="small">On top most of the time, reacting to the music</span></label>
             <label>Use my images</label>

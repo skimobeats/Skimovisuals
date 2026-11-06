@@ -8,6 +8,8 @@ declare global {
 export const isElectron = typeof window !== 'undefined' && !!window.skimo;
 
 type Filter = { name: string; extensions: string[] };
+/** Each kind of file remembers the folder it was last saved to or opened from */
+export type FileKind = 'project' | 'export' | 'audio' | 'media';
 
 // Browser fallback: files picked via <input> are tracked by a pseudo path
 const browserFiles = new Map<string, File>();
@@ -41,11 +43,11 @@ export function registerBrowserFile(name: string, blob: Blob): string {
 }
 
 export const platform = {
-  async openFiles(opts: { title?: string; filters?: Filter[]; multi?: boolean }): Promise<string[]> {
+  async openFiles(opts: { title?: string; filters?: Filter[]; multi?: boolean; kind?: FileKind }): Promise<string[]> {
     if (window.skimo) return window.skimo.openFiles(opts);
     return pickBrowserFiles(opts.filters, opts.multi);
   },
-  async saveFile(opts: { title?: string; defaultPath?: string; filters?: Filter[] }): Promise<string | null> {
+  async saveFile(opts: { title?: string; defaultPath?: string; filters?: Filter[]; kind?: FileKind; fallbackDir?: string }): Promise<string | null> {
     if (window.skimo) return window.skimo.saveFile(opts);
     return 'browser-store://' + (opts.defaultPath || 'project.skimo');
   },
@@ -68,6 +70,19 @@ export const platform = {
     browserStore.set(p, text);
     try { localStorage.setItem('skimo:' + p, text); } catch { /* ignore */ }
     return true;
+  },
+  async writeBinary(p: string, data: Uint8Array): Promise<boolean> {
+    if (window.skimo) return window.skimo.writeBinary(p, data);
+    return false;
+  },
+  async stat(p: string): Promise<{ size: number; mtime: number } | null> {
+    if (window.skimo) return window.skimo.stat(p);
+    const f = browserFiles.get(p);
+    return f ? { size: f.size, mtime: f.lastModified } : null;
+  },
+  async modelPath(): Promise<string> {
+    if (window.skimo) return window.skimo.modelPath();
+    return '/models/depth-anything-v2-small.onnx';
   },
   async exists(p: string): Promise<boolean> {
     if (window.skimo) return window.skimo.exists(p);

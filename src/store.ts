@@ -101,6 +101,7 @@ interface State {
   previewScale: number;  // fraction of project resolution used for preview
   recording: boolean;    // perform mode recording
   performOpen: boolean;
+  placing: string | null; // clip id of a 3D hero being placed into its scene
   analysisVersion: number;
   busy: { msg: string; progress: number } | null;
   toast: string | null;
@@ -133,6 +134,7 @@ export const useStore = create<State>((set, get) => ({
   previewScale: 0.5,
   recording: false,
   performOpen: false,
+  placing: null,
   analysisVersion: 0,
   busy: null,
   toast: null,

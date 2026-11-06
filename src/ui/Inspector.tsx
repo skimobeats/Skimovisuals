@@ -15,6 +15,8 @@ import { TEXT_FONTS } from '../engine/layers/media';
 import { BLEND_MODES } from '../engine/glsl';
 import { deleteSelection } from './Editor';
 import { TRANSITIONS } from '../engine/transitions';
+import { sceneStatus, onSceneChange, sceneData, depthProvider } from '../scene/scene';
+import { importMedia } from './actions';
 
 function updateClip(id: string, fn: (c: Clip) => void, history = true) {
   useStore.getState().update((p) => { const c = p.clips.find((x) => x.id === id); if (c) fn(c); }, history);
@@ -240,7 +242,8 @@ function ClipInspector({ clip }: { clip: Clip }) {
         </div>
       )}
 
-      {[...groups.entries()].map(([g, params]) => (
+      {def.category === 'hero' && <SceneControls clip={clip} />}
+      {[...groups.entries()].filter(([g]) => g !== 'Scene' || clip.sceneMediaId).map(([g, params]) => (
         <div key={g} className="group">
           <div className="group-title" onClick={() => setCollapsed((s) => ({ ...s, [g]: !s[g] }))}>
             <span>{g}</span><span>{collapsed[g] ? '▸' : '▾'}</span>
@@ -450,3 +453,48 @@ function ModMeter({ source, decay }: { source: string; decay: number }) {
 }
 
 export { selectedClips };
+
+function SceneControls({ clip }: { clip: Clip }) {
+  const project = useStore((s) => s.project)!;
+  const placing = useStore((s) => s.placing);
+  const [, force] = useState(0);
+  useEffect(() => onSceneChange(() => force((x) => x + 1)), []);
+  const images = project.media.filter((m) => m.kind === 'image');
+  const item = images.find((m) => m.id === clip.sceneMediaId);
+  const st = item ? sceneStatus(item.id) : undefined;
+  useEffect(() => { if (item) sceneData(item).catch(() => {}); }, [item?.id]);
+  const choose = (id: string | null) => {
+    updateClip(clip.id, (c) => { c.sceneMediaId = id; if (id) { c.params.floor = 0; c.blend = 'normal'; c.opacity = 1; } });
+    if (id) useStore.setState({ placing: clip.id });
+  };
+  return (
+    <div className="group">
+      <div className="group-title"><span>Background scene</span></div>
+      <div className="tiny muted" style={{ marginBottom: 6 }}>Place the shape into a photo. The app works out the depth of the scene, so things in front hide the shape, it casts a shadow on the ground and it picks up the photo's light.</div>
+      <div className="row">
+        <select className="grow" value={clip.sceneMediaId || ''} onChange={(e) => choose(e.target.value || null)}>
+          <option value="">No scene</option>
+          {images.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+        <button className="small" onClick={async () => { const added = await importMedia(); const img = added.find((m) => m.kind === 'image'); if (img) choose(img.id); }}>Add photo…</button>
+      </div>
+      {item && (
+        <div className="col" style={{ gap: 6, marginTop: 6 }}>
+          {st?.state === 'working' && <div className="tiny" style={{ color: 'var(--warn)' }}>Working out the depth of the scene… (a few seconds, only once per photo)</div>}
+          {st?.state === 'error' && <div className="tiny" style={{ color: 'var(--bad)' }}>Could not read the depth of this photo: {st.message}</div>}
+          {st?.state === 'ready' && <div className="tiny" style={{ color: 'var(--good)' }}>Scene depth ready{depthProvider ? ` (using the ${depthProvider})` : ''}</div>}
+          <div className="row">
+            <button className={placing === clip.id ? 'active' : 'primary'} onClick={() => useStore.setState({ placing: placing === clip.id ? null : clip.id })}>
+              {placing === clip.id ? 'Done placing' : '⌖ Place in the scene'}
+            </button>
+            <select value={Number(clip.params.sceneMode ?? 0)} onChange={(e) => updateClip(clip.id, (c) => { c.params.sceneMode = Number(e.target.value); })}>
+              <option value={0}>Sit on the ground</option>
+              <option value={1}>Float</option>
+            </select>
+          </div>
+          {placing === clip.id && <div className="tiny muted">Click or drag on the preview where the shape should {Number(clip.params.sceneMode ?? 0) === 1 ? 'float' : 'sit'}.</div>}
+        </div>
+      )}
+    </div>
+  );
+}

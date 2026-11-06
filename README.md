@@ -19,6 +19,7 @@ A new installer is built automatically every time the code changes. If you ever 
 4. **✨ Generate for me**: pick a style, colours and energy and it builds a full set of layers that follow your track. Press **🎲 Try another** for a different take. Everything it makes can be edited.
 5. **Skimo tab**: add your stencil logo for the whole song. Everything below shows through the letters, each letter reacts to its own part of the track (S kick, K snare, I hats, M bass, O melody) and the shape glitches, skews, stretches, slips and breathes. Pick a logo style (Reactive, Clean, Print, Chaos, Melt) and add a "SKIMO:TRACK NAME" title.
 6. **3D hero shapes** (Visuals tab): Orb, Crystal, Monolith, Ring, Shard cloud, Liquid blob and a 3D Logo slab. Shards push out on the kick, scatter on the snare, spike on the hats, ripple with the melody, breathe with the bass and can burst apart on drops, throwing debris on big kicks. Put them under the Skimo logo.
+   **Into a photo:** select a 3D hero, choose a photo under **Background scene** in its settings, then click **Place in the scene** and click the preview. The app works out the depth of the photo (a few seconds, once per photo), so things nearer than the shape hide it, it sits on the ground with a real shadow or floats, picks up the photo's light and reflections, and the camera drifts gently with parallax.
 7. **Build it yourself**: drag visuals, effects, images and text onto the timeline. Higher tracks sit on top of lower ones, and effects change everything on the tracks below them.
 8. **Transitions tab**: drag a transition (crossfade, Skimo wipe, glitch cut, zoom and more) onto the join between two clips that touch on the same track. Drag the round handles on a clip's top corners to set its fades.
 9. **Make things react**: click a layer, then the 🔗 button beside any setting and pick Kick, Snare, Bass, Beat and more. Amount sets how strongly it reacts and Release sets how quickly it settles.
@@ -26,9 +27,9 @@ A new installer is built automatically every time the code changes. If you ever 
 11. **Colour tab**: choose a Skimo palette (or pastels and more), take colours from an image, make your own, add colour changes at points in the song or let it cycle palettes on the beat. Under "Colours react to the music" you can swap colours on hits, shift hue with the bass and brighten on the kick.
 12. **🎛 Perform**: hold keys Q to H for live effects like strobe, kaleidoscope and glitch. Turn on **Record**, press play, and your pad hits and slider moves are saved to the timeline to edit afterwards.
 13. **Presets tab**: save a single layer or a whole look and reuse it on your next release.
-14. **Export video**: MP4 (H.264 with AAC audio). Your NVIDIA card's encoder is used automatically when available. Try **15 sec test** first to check how it looks.
+14. **Export video**: MP4 (H.264 with AAC audio). Your NVIDIA card's encoder is used automatically when available. Try **15 sec test** first to check how it looks. Each quality shows its file size before you export. **Draft for sharing** always comes in under 180 MB at the best quality that fits, ready to send for opinions (in WhatsApp, send it as a Document so it is not compressed again).
 
-Projects save as `.skimo` files. The app also autosaves every minute; use **Recover last autosave** on the start screen if anything goes wrong.
+Projects save as `.skimo` files. The app remembers the last folder you used for projects, exports, audio and images separately. The app also autosaves every minute; use **Recover last autosave** on the start screen if anything goes wrong.
 
 ### Shortcuts
 
@@ -61,3 +62,4 @@ npm run dist       # build the Windows installer into release/
 * `src/audio` does the analysis (envelopes, spectrum and onset detection) in a web worker.
 * `src/generate.ts` is the "Generate for me" logic.
 * `electron/main.ts` streams rendered frames into FFmpeg for export.
+* `src/engine/hero.ts` is the 3D engine; `src/scene` runs the depth model (Depth Anything V2 Small, Apache 2.0) with ONNX Runtime Web. `npm install` downloads the model into `models/` automatically and it is bundled into the installer.

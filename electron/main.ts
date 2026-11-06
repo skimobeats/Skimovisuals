@@ -96,7 +96,7 @@ function createWindow() {
 }
 
 // ---------- Export (ffmpeg pipe) ----------
-interface ExportJob { proc: ChildProcess; stderr: string; done: Promise<number>; }
+interface ExportJob { proc: ChildProcess; stderr: string; done: Promise<number>; outPath: string; }
 const jobs = new Map<string, ExportJob>();
 
 function runFfmpeg(args: string[]): Promise<{ code: number; stderr: string }> {
@@ -122,7 +122,8 @@ interface ExportOptions {
   audio: { path: string; volume: number }[];
   audioStart?: number;
   encoder: 'auto' | 'nvenc' | 'cpu';
-  quality: 'high' | 'max' | 'small';
+  videoKbps: number;
+  audioKbps: number;
 }
 
 ipcMain.handle('export:start', async (_e, opts: ExportOptions) => {
@@ -135,9 +136,8 @@ ipcMain.handle('export:start', async (_e, opts: ExportOptions) => {
     if (opts.audioStart && opts.audioStart > 0) args.push('-ss', opts.audioStart.toFixed(3));
     args.push('-i', a.path);
   }
-  const pixels = opts.width * opts.height;
-  const baseRate = Math.round((pixels / (1920 * 1080)) * (opts.fps > 30 ? 16 : 12));
-  const rate = opts.quality === 'max' ? baseRate * 2 : opts.quality === 'small' ? Math.max(4, Math.round(baseRate * 0.5)) : baseRate;
+  // bitrate targets come from the app so the file size matches the estimate shown
+  const v = Math.max(300, Math.round(opts.videoKbps));
   if (opts.audio.length > 0) {
     const parts = opts.audio.map((a, i) => `[${i + 1}:a]volume=${a.volume.toFixed(3)}[a${i}]`);
     const mix = opts.audio.length > 1
@@ -148,18 +148,16 @@ ipcMain.handle('export:start', async (_e, opts: ExportOptions) => {
     args.push('-map', '0:v');
   }
   if (useNvenc) {
-    const cq = opts.quality === 'max' ? 16 : opts.quality === 'small' ? 26 : 20;
-    args.push('-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(cq), '-b:v', `${rate}M`, '-maxrate', `${Math.round(rate * 1.6)}M`, '-bufsize', `${rate * 2}M`);
+    args.push('-c:v', 'h264_nvenc', '-preset', 'p6', '-tune', 'hq', '-rc', 'vbr', '-b:v', `${v}k`, '-maxrate', `${Math.round(v * 1.5)}k`, '-bufsize', `${v * 2}k`, '-spatial-aq', '1');
   } else {
-    const crf = opts.quality === 'max' ? 15 : opts.quality === 'small' ? 24 : 18;
-    args.push('-c:v', 'libx264', '-preset', 'medium', '-crf', String(crf));
+    args.push('-c:v', 'libx264', '-preset', 'medium', '-b:v', `${v}k`, '-maxrate', `${Math.round(v * 1.5)}k`, '-bufsize', `${v * 2}k`);
   }
   args.push('-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', String(opts.fps));
-  if (opts.audio.length > 0) args.push('-c:a', 'aac', '-b:a', '320k');
+  if (opts.audio.length > 0) args.push('-c:a', 'aac', '-b:a', `${opts.audioKbps || 320}k`);
   args.push('-t', opts.duration.toFixed(3), '-movflags', '+faststart', opts.outPath);
 
   const proc = spawn(ffmpegPath(), args, { windowsHide: true });
-  const job: ExportJob = { proc, stderr: '', done: Promise.resolve(0) };
+  const job: ExportJob = { proc, stderr: '', done: Promise.resolve(0), outPath: opts.outPath };
   proc.stderr?.on('data', (d) => { job.stderr = (job.stderr + d.toString()).slice(-8000); });
   proc.stdin?.on('error', () => { /* handled via close */ });
   job.done = new Promise((resolve) => {
@@ -188,7 +186,9 @@ ipcMain.handle('export:finish', async (_e, id: string) => {
   job.proc.stdin?.end();
   const code = await job.done;
   jobs.delete(id);
-  return { ok: code === 0, log: job.stderr.slice(-2000) };
+  let size = 0;
+  try { size = (await fs.promises.stat(job.outPath)).size; } catch { /* missing */ }
+  return { ok: code === 0, log: job.stderr.slice(-2000), size };
 });
 
 ipcMain.handle('export:cancel', async (_e, id: string) => {
@@ -202,17 +202,42 @@ ipcMain.handle('export:cancel', async (_e, id: string) => {
 ipcMain.handle('export:probe', async () => ({ nvenc: await probeNvenc() }));
 
 // ---------- Files and dialogs ----------
-ipcMain.handle('dialog:open', async (_e, opts: { title?: string; filters?: Electron.FileFilter[]; multi?: boolean }) => {
+// Remember the last folder used for each kind of file (projects, exports, audio, media)
+const foldersFile = () => path.join(app.getPath('userData'), 'folders.json');
+let folders: Record<string, string> | null = null;
+function lastFolder(kind?: string): string | undefined {
+  if (!kind) return undefined;
+  if (!folders) { try { folders = JSON.parse(fs.readFileSync(foldersFile(), 'utf8')); } catch { folders = {}; } }
+  const f = folders![kind];
+  return f && fs.existsSync(f) ? f : undefined;
+}
+function rememberFolder(kind: string | undefined, file: string) {
+  if (!kind) return;
+  lastFolder(kind);
+  folders![kind] = path.dirname(file);
+  fs.promises.writeFile(foldersFile(), JSON.stringify(folders)).catch(() => {});
+}
+
+ipcMain.handle('dialog:open', async (_e, opts: { title?: string; filters?: Electron.FileFilter[]; multi?: boolean; kind?: string }) => {
   const r = await dialog.showOpenDialog(win!, {
     title: opts.title,
+    defaultPath: lastFolder(opts.kind),
     filters: opts.filters,
     properties: opts.multi ? ['openFile', 'multiSelections'] : ['openFile']
   });
+  if (!r.canceled && r.filePaths[0]) rememberFolder(opts.kind, r.filePaths[0]);
   return r.canceled ? [] : r.filePaths;
 });
 
-ipcMain.handle('dialog:save', async (_e, opts: { title?: string; defaultPath?: string; filters?: Electron.FileFilter[] }) => {
-  const r = await dialog.showSaveDialog(win!, { title: opts.title, defaultPath: opts.defaultPath, filters: opts.filters });
+ipcMain.handle('dialog:save', async (_e, opts: { title?: string; defaultPath?: string; filters?: Electron.FileFilter[]; kind?: string; fallbackDir?: string }) => {
+  let def = opts.defaultPath;
+  // a bare file name goes into the folder used last time for this kind of file
+  if (def && path.basename(def) === def) {
+    const dir = lastFolder(opts.kind) || (opts.fallbackDir && fs.existsSync(opts.fallbackDir) ? opts.fallbackDir : undefined);
+    if (dir) def = path.join(dir, def);
+  }
+  const r = await dialog.showSaveDialog(win!, { title: opts.title, defaultPath: def, filters: opts.filters });
+  if (!r.canceled && r.filePath) rememberFolder(opts.kind, r.filePath);
   return r.canceled ? null : r.filePath;
 });
 
@@ -231,6 +256,15 @@ ipcMain.handle('fs:writeText', async (_e, p: string, text: string) => {
   return true;
 });
 ipcMain.handle('fs:exists', async (_e, p: string) => fs.existsSync(p));
+ipcMain.handle('fs:writeBinary', async (_e, p: string, data: Uint8Array) => {
+  await fs.promises.mkdir(path.dirname(p), { recursive: true });
+  await fs.promises.writeFile(p, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+  return true;
+});
+ipcMain.handle('fs:stat', async (_e, p: string) => { try { const s = await fs.promises.stat(p); return { size: s.size, mtime: s.mtimeMs }; } catch { return null; } });
+ipcMain.handle('app:modelPath', async () => app.isPackaged
+  ? path.join(process.resourcesPath, 'models', 'depth-anything-v2-small.onnx')
+  : path.join(app.getAppPath(), 'models', 'depth-anything-v2-small.onnx'));
 ipcMain.handle('app:paths', async () => ({ userData: app.getPath('userData'), videos: app.getPath('videos'), documents: app.getPath('documents') }));
 ipcMain.handle('app:showItem', async (_e, p: string) => shell.showItemInFolder(p));
 ipcMain.handle('app:quit', async () => { allowClose = true; win?.close(); });

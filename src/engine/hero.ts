@@ -1,9 +1,10 @@
 // 3D hero shapes: faceted objects made of shards that push out, tumble and burst with the music.
 import type { Clip, Project } from '../types';
 import type { LayerDef } from './layers/types';
-import { f, sel, col, mod } from './layers/types';
+import { f, sel, col, bool, mod } from './layers/types';
 import { evalNumber, colourValue, Rgb, clipSpin } from './params';
 import { eventCount, lastHitIndex } from '../audio/sources';
+import { depthAt, nearnessAt, SceneData } from '../scene/scene';
 
 export const HERO_SHAPES = ['Orb', 'Crystal', 'Monolith', 'Ring', 'Shard cloud', 'Liquid blob', 'Logo slab'];
 
@@ -12,6 +13,18 @@ export const HERO_LAYER: LayerDef = {
   description: 'A 3D object made of shards that push out to the kick, snare and hats, breathes with the bass and bursts apart on drops.',
   params: [
     sel('shape', 'Shape', HERO_SHAPES, 0, { group: 'Shape' }),
+    sel('sceneMode', 'In the scene', ['Sit on the ground', 'Float'], 0, { group: 'Scene' }),
+    f('sceneX', 'Across', 0, 1, 0.5, { group: 'Scene' }),
+    f('sceneY', 'Down', 0, 1, 0.75, { group: 'Scene' }),
+    f('sceneSize', 'Size in the scene', 0.2, 3, 1, { group: 'Scene' }),
+    f('shadow', 'Shadow', 0, 1, 0.65, { group: 'Scene' }),
+    f('spill', 'Light on the scene', 0, 1, 0.35, { group: 'Scene' }),
+    f('reflect', 'Reflections of the scene', 0, 1, 0.35, { group: 'Scene' }),
+    f('haze', 'Atmosphere', 0, 1, 0.3, { group: 'Scene' }),
+    f('drift', 'Camera drift', 0, 1, 0.35, { group: 'Scene' }),
+    bool('matchLight', 'Match the photo lighting', true, { group: 'Scene' }),
+    f('photoBright', 'Photo brightness', 0, 2, 1, { group: 'Scene' }),
+    f('photoGrade', 'Tint photo to palette', 0, 1, 0, { group: 'Scene' }),
     sel('detail', 'Shards', ['Chunky', 'Medium', 'Fine'], 1, { group: 'Shape' }),
     f('size', 'Size', 0.2, 2.5, 1, { group: 'Shape' }),
     f('thickness', 'Shard depth', 0.02, 0.6, 0.22, { group: 'Shape' }),
@@ -19,6 +32,14 @@ export const HERO_LAYER: LayerDef = {
     f('variation', 'Variation', 0, 50, 1, { step: 1, group: 'Shape' }),
     f('x', 'Position X', -1, 1, 0, { group: 'Shape' }),
     f('y', 'Position Y', -1, 1, 0, { group: 'Shape' }),
+    sel('material', 'Material', ['Matte', 'Glossy', 'Glass', 'Wireframe'], 1, { group: 'Look' }),
+    sel('colourMode', 'Colouring', ['Dark with colour accents', 'Palette colours', 'Single colour'], 0, { group: 'Look' }),
+    col('colour', 'Single colour', 'p0', { group: 'Look' }),
+    col('warm', 'Warm light', 'p1', { group: 'Look' }),
+    col('cool', 'Cool light', 'p0', { group: 'Look' }),
+    f('core', 'Inner glow', 0, 1.5, 0.35, { group: 'Look' }),
+    f('floor', 'Glow under shape', 0, 1, 0.12, { group: 'Look' }),
+    f('brightness', 'Brightness', 0, 3, 1, { group: 'Look' }),
     f('spin', 'Spin', -2, 2, 0.25, { group: 'Motion' }),
     f('tilt', 'Tilt', -1, 1, 0.25, { group: 'Motion' }),
     f('wobble', 'Wobble', 0, 1, 0.3, { group: 'Motion' }),
@@ -29,15 +50,7 @@ export const HERO_LAYER: LayerDef = {
     f('ripple', 'Ripple (melody)', 0, 1, 0, { group: 'Music' }),
     f('breathe', 'Breathe (bass)', 0, 1, 0, { group: 'Music' }),
     f('burst', 'Burst apart', 0, 1, 0, { group: 'Music' }),
-    f('debris', 'Flying debris on kicks', 0, 1, 0.5, { group: 'Music' }),
-    sel('material', 'Material', ['Matte', 'Glossy', 'Glass', 'Wireframe'], 1, { group: 'Look' }),
-    sel('colourMode', 'Colouring', ['Dark with colour accents', 'Palette colours', 'Single colour'], 0, { group: 'Look' }),
-    col('colour', 'Single colour', 'p0', { group: 'Look' }),
-    col('warm', 'Warm light', 'p1', { group: 'Look' }),
-    col('cool', 'Cool light', 'p0', { group: 'Look' }),
-    f('core', 'Inner glow', 0, 1.5, 0.35, { group: 'Look' }),
-    f('floor', 'Floor glow', 0, 1, 0.5, { group: 'Look' }),
-    f('brightness', 'Brightness', 0, 3, 1, { group: 'Look' })
+    f('debris', 'Flying debris on kicks', 0, 1, 0.5, { group: 'Music' })
   ],
   defaultMods: {
     kick: mod('kick', 0.95, 0.22), snare: mod('snare', 0.85, 0.2), hats: mod('hats', 0.8, 0.09),
@@ -256,6 +269,7 @@ out vec4 fragColor;
 uniform vec3 u_pal[4]; uniform vec3 u_warm; uniform vec3 u_cool; uniform vec3 u_single; uniform vec3 u_cam;
 uniform float u_material; uniform float u_colourMode; uniform float u_core; uniform float u_bright; uniform float u_mode; uniform float u_slab;
 uniform sampler2D u_logo;
+uniform sampler2D u_env; uniform float u_envAmt;
 void main(){
   vec3 n = normalize(cross(dFdx(v_wpos), dFdy(v_wpos)));
   vec3 V = normalize(u_cam - v_wpos);
@@ -291,6 +305,12 @@ void main(){
     if (line < 0.05) discard;
     c = mix(u_cool, u_warm, r) * 1.4; alpha = line;
   }
+  // reflections of the background photo
+  if (u_envAmt > 0.0) {
+    vec3 rd = reflect(-V, n);
+    vec3 env = texture(u_env, clamp(rd.xy * 0.5 + 0.5, 0.0, 1.0)).rgb;
+    c += env * u_envAmt * (0.25 + fres * 0.9) * (mat == 0 ? 0.5 : 1.0);
+  }
   // shards that push out catch the glow of the core
   c += u_pal[2] * clamp(v_push, 0.0, 1.0) * u_core * 0.8;
   fragColor = vec4(c * u_bright, alpha);
@@ -314,6 +334,56 @@ void main(){
   float a = clamp(core + fl, 0.0, 1.0);
   fragColor = vec4(c / max(a, 0.001), a);
 }`;
+
+// composite the hero into a photo, using the photo's depth for occlusion, shadow and light
+const SCENE_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 fragColor;
+uniform sampler2D u_photo; uniform sampler2D u_depth; uniform sampler2D u_hero;
+uniform vec2 u_res; uniform float u_photoAsp; uniform vec2 u_drift; uniform float u_focus;
+uniform vec2 u_orbC; uniform float u_orbR; uniform float u_orbD; uniform float u_orbMargin;
+uniform vec2 u_shadowC; uniform float u_shadowD; uniform float u_shadow; uniform float u_float;
+uniform float u_spill; uniform vec3 u_spillCol; uniform float u_haze; uniform vec3 u_hazeCol;
+uniform float u_bright; uniform float u_grade; uniform vec3 u_gradeCol; uniform float u_t;
+float hash21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec2 cover(vec2 uv){
+  float a = u_res.x / u_res.y;
+  if (u_photoAsp > a) return vec2(0.5 + (uv.x - 0.5) * a / u_photoAsp, uv.y);
+  return vec2(uv.x, 0.5 + (uv.y - 0.5) * u_photoAsp / a);
+}
+void main(){
+  float a = u_res.x / u_res.y;
+  vec2 puv = cover(v_uv);
+  float d0 = texture(u_depth, puv).r;
+  // gentle parallax: nearer things move more than the plane the shape sits on
+  vec2 puv2 = clamp(puv + u_drift * (d0 - u_focus), 0.001, 0.999);
+  float d = texture(u_depth, puv2).r;
+  vec3 col = texture(u_photo, puv2).rgb * u_bright;
+  col = mix(col, col * u_gradeCol * 1.6, u_grade);
+  vec2 fc = vec2((v_uv.x - 0.5) * a, v_uv.y - 0.5);
+  // shadow on the ground under the shape
+  vec2 sc = vec2((u_shadowC.x - 0.5) * a, u_shadowC.y - 0.5);
+  vec2 q = (fc - sc) / (vec2(u_orbR * 1.05, u_orbR * 0.2) * (1.0 + u_float * 0.8));
+  float onGround = 1.0 - smoothstep(0.05, 0.14, abs(d - u_shadowD));
+  float sh = exp(-dot(q, q) * 1.4) * u_shadow * mix(0.85, 0.4, u_float) * onGround;
+  float contact = exp(-dot(q * vec2(1.6, 2.2), q * vec2(1.6, 2.2)) * 2.0) * u_shadow * (1.0 - u_float) * onGround;
+  col *= 1.0 - clamp(sh * 0.75 + contact * 0.5, 0.0, 0.92);
+  // the shape's light spilling onto the scene around it
+  vec2 oc = vec2((u_orbC.x - 0.5) * a, u_orbC.y - 0.5);
+  float dist = length(fc - oc) / max(u_orbR, 0.01);
+  float spill = exp(-dist * dist * 0.35) * u_spill * (1.0 - smoothstep(0.1, 0.35, abs(d - u_orbD)));
+  col += u_spillCol * spill * 0.45;
+  // the shape itself, hidden wherever the scene is in front of it
+  vec4 h = texture(u_hero, v_uv);
+  float occ = smoothstep(u_orbD + u_orbMargin, u_orbD + u_orbMargin + 0.035, d);
+  float ha = h.a * (1.0 - occ);
+  vec3 hc = mix(h.rgb, u_hazeCol, u_haze * (1.0 - u_orbD) * 0.7);
+  col = mix(col, hc, clamp(ha, 0.0, 1.0));
+  col += (hash21(v_uv * u_res + fract(u_t * 13.0) * 50.0) - 0.5) * 0.035;
+  fragColor = vec4(col, 1.0);
+}`;
+
+export interface SceneInput { photo: WebGLTexture; photoW: number; photoH: number; depthTex: WebGLTexture; data: SceneData; }
 
 // ---------- matrices ----------
 function perspective(fovy: number, aspect: number, near: number, far: number) {
@@ -341,6 +411,8 @@ export class HeroRenderer {
   private shapes = new Map<string, Built>();
   private debris: Built;
   private vao: WebGLVertexArrayObject;
+  private scenePass: Prog;
+  private own: { fb: WebGLFramebuffer; tex: WebGLTexture; rb: WebGLRenderbuffer; w: number; h: number } | null = null;
   errors: string[] = [];
 
   constructor(gl: WebGL2RenderingContext, quad: WebGLBuffer) {
@@ -348,6 +420,7 @@ export class HeroRenderer {
     this.quad = quad;
     this.prog = this.compile(VS, FS, ['a_pos', 'a_center', 'a_dir', 'a_rand', 'a_bary', 'a_uv', 'a_front']);
     this.stage = this.compile(STAGE_VS, STAGE_FS, ['a_pos']);
+    this.scenePass = this.compile(STAGE_VS, SCENE_FS, ['a_pos']);
     this.vao = gl.createVertexArray()!;
     this.debris = this.upload(buildDebris());
   }
@@ -390,8 +463,31 @@ export class HeroRenderer {
     gl.bindVertexArray(null);
   }
 
+  /** A private target for drawing the shape before placing it into a photo */
+  private ownTarget(w: number, h: number) {
+    const gl = this.gl;
+    if (this.own && this.own.w === w && this.own.h === h) return this.own;
+    if (this.own) { gl.deleteFramebuffer(this.own.fb); gl.deleteTexture(this.own.tex); gl.deleteRenderbuffer(this.own.rb); }
+    const tex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const fb = gl.createFramebuffer()!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const rb = gl.createRenderbuffer()!;
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+    this.own = { fb, tex, rb, w, h };
+    return this.own;
+  }
+
   /** Draw the hero for one clip into the given framebuffer (which must have a depth buffer). */
-  render(project: Project, clip: Clip, def: LayerDef, t: number, w: number, h: number, fb: WebGLFramebuffer, pal: Rgb[], logoTex: WebGLTexture) {
+  render(project: Project, clip: Clip, def: LayerDef, t: number, w: number, h: number, fb: WebGLFramebuffer, pal: Rgb[], logoTex: WebGLTexture, scene?: SceneInput) {
     const gl = this.gl;
     const num = (k: string) => { const p = def.params.find((x) => x.key === k)!; return evalNumber(project, clip, p, t); };
     const colour = (k: string) => colourValue(project, clip, def.params.find((x) => x.key === k)!, pal);
@@ -416,11 +512,36 @@ export class HeroRenderer {
     const local = t - clip.start;
     const tilt = num('tilt') * 0.6 + Math.sin(local * 0.5) * wob * 0.25;
     const roll = Math.sin(local * 0.37) * wob * 0.15;
-    const px = num('x') * asp * 1.5, py = num('y') * 1.5;
-    let model = mul(translate(px, py, 0), mul(rotZ(roll), mul(rotX(tilt), mul(rotY(spin), scaleM(size * fit)))));
+    let px = num('x') * asp * 1.5, py = num('y') * 1.5;
+    let sizeFit = size * fit;
+    // placed into a photo: position and size come from the point picked in the scene and its depth
+    let place: { orbC: [number, number]; orbR: number; orbD: number; shadowC: [number, number]; shadowD: number; float: number; focusUv: [number, number] } | null = null;
+    if (scene) {
+      const sx = num('sceneX'), sy = num('sceneY');
+      const floatMode = Math.round(num('sceneMode')) === 1;
+      const pAsp = scene.photoW / Math.max(1, scene.photoH);
+      const toPhoto = (u: number, v: number): [number, number] => pAsp > asp ? [0.5 + (u - 0.5) * asp / pAsp, v] : [u, 0.5 + (v - 0.5) * pAsp / asp];
+      const [pu, pv] = toPhoto(sx, sy);
+      const dPlace = depthAt(scene.data, pu, pv);
+      // apparent size follows nearness; the small constant stands in for the unknown distance offset
+      const R = 0.12 * num('sceneSize') * (0.6 + nearnessAt(scene.data, pu, pv) * 0.8);
+      let cy = sy, shadowY = sy, shadowD = dPlace;
+      if (!floatMode) cy = sy - R * 1.05; // sit on the point: the centre is one radius above it
+      else {
+        // find the ground under a floating shape: the first point below it at the same distance
+        shadowY = Math.min(0.98, sy + R * 2.5);
+        for (let v = sy + R; v < 0.99; v += 0.005) { const [qu, qv] = toPhoto(sx, v); const dd = depthAt(scene.data, qu, qv); if (dd >= dPlace - 0.01) { shadowY = v; shadowD = dd; break; } }
+      }
+      px = ((sx - 0.5) * asp) / 0.3548;
+      py = (0.5 - cy) / 0.3548;
+      sizeFit = R / 0.3548;
+      place = { orbC: [sx, 1 - cy], orbR: R, orbD: dPlace, shadowC: [sx, 1 - shadowY], shadowD, float: floatMode ? 1 : 0, focusUv: [pu, pv] };
+    }
+    let model = mul(translate(px, py, 0), mul(rotZ(roll), mul(rotX(tilt), mul(rotY(spin), scaleM(sizeFit)))));
     if (shape === 6) model = mul(translate(px, py, 0), mul(rotX(tilt * 0.15), mul(rotY(Math.sin(spin) * 0.35), scaleM(size * fit * 1.3))));
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    const target = scene ? this.ownTarget(w, h).fb : fb;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target);
     gl.viewport(0, 0, w, h);
     gl.clearColor(0, 0, 0, 0);
     gl.clearDepth(1);
@@ -432,14 +553,20 @@ export class HeroRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    const radius = 0.34 * size * fit * (shape === 1 || shape === 2 ? 1.3 : 1);
+    const radius = 0.34 * sizeFit * (shape === 1 || shape === 2 ? 1.3 : 1);
     gl.uniform2f(this.u(sp, 'u_res'), w, h);
     gl.uniform2f(this.u(sp, 'u_centre'), px * 0.354, py * 0.354);
     gl.uniform1f(this.u(sp, 'u_radius'), radius);
-    gl.uniform1f(this.u(sp, 'u_core'), num('core'));
-    gl.uniform1f(this.u(sp, 'u_floor'), num('floor'));
+    gl.uniform1f(this.u(sp, 'u_core'), num('core') * (scene ? 0.5 : 1));
+    gl.uniform1f(this.u(sp, 'u_floor'), scene ? 0 : num('floor'));
     gl.uniform3f(this.u(sp, 'u_coreCol'), pal[2][0], pal[2][1], pal[2][2]);
-    const warm = colour('warm');
+    let warm = colour('warm');
+    let coolC = colour('cool');
+    if (scene && num('matchLight') > 0.5) {
+      const mixc = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+      warm = mixc(warm, scene.data.key.map((x) => Math.min(1.2, x * 1.15)) as Rgb, 0.75);
+      coolC = mixc(coolC, scene.data.ambient.map((x) => Math.min(1, x * 1.4)) as Rgb, 0.75);
+    }
     gl.uniform3f(this.u(sp, 'u_floorCol'), warm[0], warm[1], warm[2]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -468,8 +595,11 @@ export class HeroRenderer {
     gl.uniform1fv(this.u(p, 'u_hitAge'), ages);
     gl.uniform3fv(this.u(p, 'u_pal'), new Float32Array(pal.flat()));
     gl.uniform3f(this.u(p, 'u_warm'), warm[0], warm[1], warm[2]);
-    const cool = colour('cool');
-    gl.uniform3f(this.u(p, 'u_cool'), cool[0], cool[1], cool[2]);
+    gl.uniform3f(this.u(p, 'u_cool'), coolC[0], coolC[1], coolC[2]);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, scene ? scene.photo : logoTex);
+    gl.uniform1i(this.u(p, 'u_env'), 1);
+    gl.uniform1f(this.u(p, 'u_envAmt'), scene ? num('reflect') : 0);
     const single = colour('colour');
     gl.uniform3f(this.u(p, 'u_single'), single[0], single[1], single[2]);
     gl.uniform3f(this.u(p, 'u_cam'), 0, 0, camZ);
@@ -496,5 +626,43 @@ export class HeroRenderer {
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
+    if (scene && place) this.compositeScene(scene, place, num, pal, warm, t, w, h, fb);
+  }
+
+  private compositeScene(scene: SceneInput, place: { orbC: [number, number]; orbR: number; orbD: number; shadowC: [number, number]; shadowD: number; float: number }, num: (k: string) => number, pal: Rgb[], warm: Rgb, t: number, w: number, h: number, fb: WebGLFramebuffer) {
+    const gl = this.gl;
+    const sp = this.scenePass;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(sp.prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const bind = (name: string, unit: number, tex: WebGLTexture) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(this.u(sp, name), unit); };
+    bind('u_photo', 0, scene.photo);
+    bind('u_depth', 1, scene.depthTex);
+    bind('u_hero', 2, this.own!.tex);
+    const drift = num('drift') * 0.035;
+    gl.uniform2f(this.u(sp, 'u_res'), w, h);
+    gl.uniform1f(this.u(sp, 'u_photoAsp'), scene.photoW / Math.max(1, scene.photoH));
+    gl.uniform2f(this.u(sp, 'u_drift'), Math.sin(t * 0.21) * drift, Math.sin(t * 0.13 + 1.0) * drift * 0.5);
+    gl.uniform1f(this.u(sp, 'u_focus'), place.orbD);
+    gl.uniform2f(this.u(sp, 'u_orbC'), place.orbC[0], place.orbC[1]);
+    gl.uniform1f(this.u(sp, 'u_orbR'), place.orbR);
+    gl.uniform1f(this.u(sp, 'u_orbD'), place.orbD);
+    gl.uniform1f(this.u(sp, 'u_orbMargin'), 0.03 + place.orbR * 0.25);
+    gl.uniform2f(this.u(sp, 'u_shadowC'), place.shadowC[0], place.shadowC[1]);
+    gl.uniform1f(this.u(sp, 'u_shadowD'), place.shadowD);
+    gl.uniform1f(this.u(sp, 'u_shadow'), num('shadow'));
+    gl.uniform1f(this.u(sp, 'u_float'), place.float);
+    gl.uniform1f(this.u(sp, 'u_spill'), num('spill') * (1 + num('core')));
+    gl.uniform3f(this.u(sp, 'u_spillCol'), (pal[2][0] + warm[0]) / 2, (pal[2][1] + warm[1]) / 2, (pal[2][2] + warm[2]) / 2);
+    gl.uniform1f(this.u(sp, 'u_haze'), num('haze'));
+    gl.uniform3f(this.u(sp, 'u_hazeCol'), scene.data.ambient[0], scene.data.ambient[1], scene.data.ambient[2]);
+    gl.uniform1f(this.u(sp, 'u_bright'), num('photoBright'));
+    gl.uniform1f(this.u(sp, 'u_grade'), num('photoGrade'));
+    gl.uniform3f(this.u(sp, 'u_gradeCol'), (pal[0][0] + pal[1][0]) / 2, (pal[0][1] + pal[1][1]) / 2, (pal[0][2] + pal[1][2]) / 2);
+    gl.uniform1f(this.u(sp, 'u_t'), t);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 }

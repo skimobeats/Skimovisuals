@@ -1,7 +1,8 @@
 import type { Clip, MediaItem, Project } from '../types';
 import { VERT, HEADER, COPY_FRAG, BLEND_FRAG, BLEND_MODES, TRANSITION_FRAG } from './glsl';
 import { TRANSITION_MAP } from './transitions';
-import { HeroRenderer } from './hero';
+import { HeroRenderer, SceneInput } from './hero';
+import { sceneData, sceneNow } from '../scene/scene';
 import logoMaskUrl from '../assets/skimo-logo-mask.png';
 import { getDef, PADS, PAD_MAP } from './registry';
 import type { LayerDef } from './layers/types';
@@ -24,6 +25,7 @@ export class Renderer {
   private blendProg: Program;
   private transProg: Program;
   private hero: HeroRenderer;
+  private depthTex = new Map<string, WebGLTexture>();
   private accA!: Target; private accB!: Target; private layer!: Target; private out8?: Target;
   private tmpA!: Target; private tmpB!: Target;
   private logo: { tex: WebGLTexture; ready: boolean; img: HTMLImageElement };
@@ -215,6 +217,8 @@ export class Renderer {
   async preloadMedia(project: Project) {
     const fonts = [...new Set(project.clips.filter((c) => c.type === 'text').map((c) => c.font || 'Archivo Variable'))];
     await Promise.all(fonts.map((f) => document.fonts.load(`160px "${f}"`).catch(() => null)));
+    const scenes = project.clips.map((c) => c.sceneMediaId).filter(Boolean).map((id) => project.media.find((m) => m.id === id)).filter((m): m is MediaItem => !!m && m.kind === 'image');
+    await Promise.all(scenes.map((m) => sceneData(m).catch(() => null)));
     if (!this.logo.ready) await new Promise<void>((res) => { this.logo.img.addEventListener('load', () => res(), { once: true }); setTimeout(res, 5000); });
     await Promise.all(project.media.map((item) => {
       const m = this.mediaTex(item);
@@ -384,11 +388,39 @@ export class Renderer {
     }
   }
 
+  /** The background photo and its depth for a 3D hero placed in a scene, once both are ready */
+  private sceneFor(project: Project, clip: Clip): SceneInput | undefined {
+    const item = clip.sceneMediaId ? project.media.find((m) => m.id === clip.sceneMediaId && m.kind === 'image') : undefined;
+    if (!item) return undefined;
+    const photo = this.mediaTex(item);
+    const data = sceneNow(item.id);
+    if (!data) { sceneData(item).then(() => this.onMediaReady?.()).catch(() => {}); return undefined; }
+    if (!photo.ready) return undefined;
+    let tex = this.depthTex.get(item.id);
+    if (!tex) {
+      const gl = this.gl;
+      tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      // flip so the bottom row comes first, matching the photo texture
+      const flipped = new Uint8Array(data.w * data.h);
+      for (let y = 0; y < data.h; y++) flipped.set(data.depth.subarray((data.h - 1 - y) * data.w, (data.h - y) * data.w), y * data.w);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, data.w, data.h, 0, gl.RED, gl.UNSIGNED_BYTE, flipped);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.depthTex.set(item.id, tex);
+    }
+    return { photo: photo.tex, photoW: photo.w, photoH: photo.h, depthTex: tex, data };
+  }
+
   /** Draw one layer into a texture. Effects and the logo read the image built up so far. */
   private renderLayer(project: Project, clip: Clip, t: number, w: number, h: number, into: Target): WebGLTexture {
     const def = getDef(clip.type);
     if (def.category === 'hero') {
-      this.hero.render(project, clip, def, t, w, h, into.fb, paletteAt(project, t, clip.paletteId), this.logo.tex);
+      this.hero.render(project, clip, def, t, w, h, into.fb, paletteAt(project, t, clip.paletteId), this.logo.tex, this.sceneFor(project, clip));
       return into.tex;
     }
     const p = this.program(def);

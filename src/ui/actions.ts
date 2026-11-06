@@ -73,7 +73,7 @@ export async function importMediaPaths(paths: string[]) {
 }
 
 export async function importMedia() {
-  const paths = await platform.openFiles({ title: 'Add images or videos', multi: true, filters: [{ name: 'Images and video', extensions: [...IMAGE_EXT, ...VIDEO_EXT] }] });
+  const paths = await platform.openFiles({ title: 'Add images or videos', kind: 'media', multi: true, filters: [{ name: 'Images and video', extensions: [...IMAGE_EXT, ...VIDEO_EXT] }] });
   return importMediaPaths(paths);
 }
 
